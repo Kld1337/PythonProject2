@@ -1,4 +1,5 @@
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 
@@ -111,6 +112,42 @@ def extract_absorbance_plate(data: pd.DataFrame) -> pd.DataFrame:
 
     return result
 
+def create_plate_heatmap(
+    plate_results: pd.DataFrame,
+):
+    heatmap_data = plate_results.pivot(
+        index="plate_row",
+        columns="plate_column",
+        values="raw_absorbance",
+    )
+
+    heatmap_figure = px.imshow(
+        heatmap_data,
+        labels={
+            "x": "Kolumna płytki",
+            "y": "Wiersz płytki",
+            "color": "Absorbancja",
+        },
+        x=heatmap_data.columns,
+        y=heatmap_data.index,
+        color_continuous_scale="Viridis",
+        text_auto=".4f",
+        aspect="auto",
+    )
+
+    heatmap_figure.update_layout(
+        title="Rozkład surowej absorbancji na płytce",
+        xaxis_title="Kolumna płytki",
+        yaxis_title="Wiersz płytki",
+    )
+
+    heatmap_figure.update_xaxes(
+        dtick=1,
+        side="top",
+    )
+
+    return heatmap_figure
+
 
 uploaded_file = st.file_uploader(
     "Wybierz plik XLSX z czytnika",
@@ -221,6 +258,17 @@ try:
                 ),
                 use_container_width=True,
                 hide_index=True,
+            )
+
+            st.subheader("Heatmapa płytki 96-dołkowej")
+
+            heatmap_figure = create_plate_heatmap(
+                plate_results
+            )
+
+            st.plotly_chart(
+                heatmap_figure,
+                use_container_width=True,
             )
 
             csv_result = plate_results.to_csv(
