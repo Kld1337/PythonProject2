@@ -271,6 +271,48 @@ def extract_sample_plate_map(
         )
 
     return result
+def combine_results_with_sample_map(
+    plate_results: pd.DataFrame,
+    plate_map: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Łączy wyniki absorbancji z identyfikatorami
+    próbek na podstawie oznaczenia dołka.
+    """
+
+    combined_data = plate_results.merge(
+        plate_map[["well", "sample_id"]],
+        on="well",
+        how="left",
+        validate="one_to_one",
+    )
+
+    combined_data["sample_id"] = (
+        combined_data["sample_id"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    combined_data["sample_status"] = (
+        combined_data["sample_id"]
+        .ne("")
+        .map(
+            {
+                True: "Assigned",
+                False: "Unassigned",
+            }
+        )
+    )
+
+    if len(combined_data) != 96:
+        raise ValueError(
+            "Po połączeniu oczekiwano 96 dołków, "
+            f"ale otrzymano {len(combined_data)}."
+        )
+
+    return combined_data
+
 uploaded_files = st.file_uploader(
     "Wybierz pliki XLSX z czytnika",
     type=["xlsx"],
@@ -310,11 +352,17 @@ try:
         header=None,
     )
 
-    preview_tab, absorbance_tab, plate_map_tab = st.tabs(
+    (
+        preview_tab,
+        absorbance_tab,
+        plate_map_tab,
+        combined_tab,
+    ) = st.tabs(
         [
             "Podgląd całego arkusza",
             "Wyniki absorbancji",
             "Mapa płytki",
+            "Połączone dane",
         ]
     )
 
@@ -509,6 +557,92 @@ try:
             )
 
             st.info(str(map_error))
+
+    with combined_tab:
+            st.subheader(
+                "Wyniki absorbancji z identyfikatorami"
+            )
+
+            try:
+                plate_results = extract_absorbance_plate(
+                    raw_data
+                )
+
+                plate_map = extract_sample_plate_map(
+                    raw_data
+                )
+
+                combined_data = (
+                    combine_results_with_sample_map(
+                        plate_results,
+                        plate_map,
+                    )
+                )
+
+                assigned_count = (
+                    combined_data["sample_status"]
+                    .eq("Assigned")
+                    .sum()
+                )
+
+                unassigned_count = (
+                    combined_data["sample_status"]
+                    .eq("Unassigned")
+                    .sum()
+                )
+
+                unique_sample_count = (
+                    combined_data.loc[
+                        combined_data["sample_status"]
+                        .eq("Assigned"),
+                        "sample_id",
+                    ]
+                        .nunique()
+                )
+
+                combined_column_1, combined_column_2, combined_column_3 = (
+                    st.columns(3)
+                )
+
+                combined_column_1.metric(
+              "Opisane wyniki",
+                    assigned_count,
+                )
+
+                combined_column_2.metric(
+              "Nieopisane wyniki",
+                    unassigned_count,
+                )
+
+                combined_column_3.metric(
+              "Unikalne identyfikatory",
+                    unique_sample_count,
+                )
+
+                st.dataframe(
+                    combined_data,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                combined_csv = combined_data.to_csv(
+                    index=False
+                ).encode("utf-8")
+
+                st.download_button(
+                    label="Pobierz połączone dane jako CSV",
+                    data=combined_csv,
+                    file_name="combined_plate_results.csv",
+                    mime="text/csv",
+                )
+
+            except ValueError as combined_error:
+                st.warning(
+                    "Nie udało się połączyć absorbancji "
+                    "z identyfikatorami."
+                )
+
+                st.info(str(combined_error))
 except Exception as error:
     st.error("Nie udało się odczytać pliku XLSX.")
     st.exception(error)
