@@ -312,6 +312,73 @@ def combine_results_with_sample_map(
         )
 
     return combined_data
+def calculate_sample_statistics(
+    combined_data: pd.DataFrame,
+    expected_replicates: int = 3,
+    cv_limit: float = 15.0,
+) -> pd.DataFrame:
+    """
+    Oblicza statystyki dla każdego identyfikatora próbki.
+    """
+
+    assigned_data = combined_data.loc[
+        combined_data["sample_id"]
+        .astype(str)
+        .str.strip()
+        .ne("")
+    ].copy()
+
+    if assigned_data.empty:
+        raise ValueError(
+            "Brak opisanych dołków do obliczenia statystyk."
+        )
+
+    summary = (
+        assigned_data
+        .groupby(
+            "sample_id",
+            as_index=False,
+        )
+        .agg(
+            n=("raw_absorbance", "count"),
+            mean_absorbance=("raw_absorbance", "mean"),
+            sd_absorbance=("raw_absorbance", "std"),
+            minimum=("raw_absorbance", "min"),
+            maximum=("raw_absorbance", "max"),
+        )
+    )
+
+    summary["cv_pct"] = (
+        summary["sd_absorbance"]
+        / summary["mean_absorbance"]
+        * 100
+    )
+
+    summary.loc[
+        summary["mean_absorbance"] == 0,
+        "cv_pct",
+    ] = pd.NA
+
+    summary["qc_status"] = "PASS"
+
+    summary.loc[
+        summary["n"] != expected_replicates,
+        "qc_status",
+    ] = "CHECK_N"
+
+    summary.loc[
+        (
+            summary["n"] == expected_replicates
+        )
+        & (
+            summary["cv_pct"] > cv_limit
+        ),
+        "qc_status",
+    ] = "HIGH_CV"
+
+    return summary.sort_values(
+        by=["qc_status", "sample_id"]
+    ).reset_index(drop=True)
 
 uploaded_files = st.file_uploader(
     "Wybierz pliki XLSX z czytnika",
@@ -357,12 +424,14 @@ try:
         absorbance_tab,
         plate_map_tab,
         combined_tab,
+        statistics_tab,
     ) = st.tabs(
         [
             "Podgląd całego arkusza",
             "Wyniki absorbancji",
             "Mapa płytki",
             "Połączone dane",
+            "Statystyka",
         ]
     )
 
@@ -643,6 +712,132 @@ try:
                 )
 
                 st.info(str(combined_error))
+    with statistics_tab:
+        st.subheader(
+            "Statystyki według identyfikatora próbki"
+        )
+
+        expected_replicates = st.number_input(
+            "Oczekiwana liczba powtórzeń",
+            min_value=1,
+            max_value=20,
+            value=3,
+            step=1,
+        )
+
+        cv_limit = st.number_input(
+            "Maksymalne CV [%]",
+            min_value=0.0,
+            max_value=100.0,
+            value=15.0,
+            step=1.0,
+        )
+
+        try:
+            plate_results = extract_absorbance_plate(
+                raw_data
+            )
+
+            plate_map = extract_sample_plate_map(
+                raw_data
+            )
+
+            combined_data = (
+                combine_results_with_sample_map(
+                    plate_results,
+                    plate_map,
+                )
+            )
+
+            sample_statistics = (
+                calculate_sample_statistics(
+                    combined_data,
+                    expected_replicates=(
+                        int(expected_replicates)
+                    ),
+                    cv_limit=cv_limit,
+                )
+            )
+
+            pass_count = (
+                sample_statistics["qc_status"]
+                .eq("PASS")
+                .sum()
+            )
+
+            high_cv_count = (
+                sample_statistics["qc_status"]
+                .eq("HIGH_CV")
+                .sum()
+            )
+
+            check_n_count = (
+                sample_statistics["qc_status"]
+                .eq("CHECK_N")
+                .sum()
+            )
+
+            (
+                statistics_column_1,
+                statistics_column_2,
+                statistics_column_3,
+                statistics_column_4,
+            ) = st.columns(4)
+
+            statistics_column_1.metric(
+                "Identyfikatory",
+                len(sample_statistics),
+            )
+
+            statistics_column_2.metric(
+                "PASS",
+                pass_count,
+            )
+
+            statistics_column_3.metric(
+                "Wysokie CV",
+                high_cv_count,
+            )
+
+            statistics_column_4.metric(
+                "Nieprawidłowe n",
+                check_n_count,
+            )
+
+            st.dataframe(
+                sample_statistics.style.format(
+                    {
+                        "mean_absorbance": "{:.4f}",
+                        "sd_absorbance": "{:.4f}",
+                        "minimum": "{:.4f}",
+                        "maximum": "{:.4f}",
+                        "cv_pct": "{:.2f}",
+                    },
+                    na_rep="brak",
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            statistics_csv = (
+                sample_statistics.to_csv(
+                    index=False
+                ).encode("utf-8")
+            )
+
+            st.download_button(
+                label="Pobierz statystyki jako CSV",
+                data=statistics_csv,
+                file_name="sample_statistics.csv",
+                mime="text/csv",
+            )
+
+        except ValueError as statistics_error:
+            st.warning(
+                "Nie udało się obliczyć statystyk."
+            )
+
+            st.info(str(statistics_error))
 except Exception as error:
     st.error("Nie udało się odczytać pliku XLSX.")
     st.exception(error)
