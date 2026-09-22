@@ -148,15 +148,147 @@ def create_plate_heatmap(
 
     return heatmap_figure
 
+def create_empty_plate_map() -> pd.DataFrame:
+    records = []
 
-uploaded_file = st.file_uploader(
-    "Wybierz plik XLSX z czytnika",
+    for plate_row in "ABCDEFGH":
+        for plate_column in range(1, 13):
+            records.append(
+                {
+                    "well": f"{plate_row}{plate_column}",
+                    "sample_id": "",
+                    "sample_type": "Sample",
+                    "replicate": None,
+                    "condition": "",
+                    "concentration": None,
+                    "timepoint": "",
+                }
+            )
+
+    return pd.DataFrame(records)
+def extract_sample_plate_map(
+    data: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Wyszukuje sekcję Sample i przypisuje
+    identyfikatory próbek do dołków A1-H12.
+    """
+
+    first_column = (
+        data.iloc[:, 0]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    sample_rows = data.index[
+        first_column == "sample"
+    ].tolist()
+
+    if not sample_rows:
+        raise ValueError(
+            "Nie znaleziono sekcji 'Sample' "
+            "z identyfikatorami dołków."
+        )
+
+    header_row = sample_rows[0]
+
+    column_numbers = data.iloc[
+        header_row, 1:13
+    ].tolist()
+
+    try:
+        detected_columns = [
+            int(column_number)
+            for column_number in column_numbers
+        ]
+    except (TypeError, ValueError):
+        raise ValueError(
+            "Nie udało się odczytać numerów kolumn "
+            "w sekcji Sample."
+        )
+
+    if detected_columns != list(range(1, 13)):
+        raise ValueError(
+            "Sekcja Sample nie zawiera kolumn 1-12."
+        )
+
+    plate_map_data = data.iloc[
+        header_row + 1:header_row + 9,
+        0:13,
+    ].copy()
+
+    expected_rows = list("ABCDEFGH")
+
+    detected_rows = (
+        plate_map_data.iloc[:, 0]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .tolist()
+    )
+
+    if detected_rows != expected_rows:
+        raise ValueError(
+            "Sekcja Sample nie zawiera pełnego "
+            "układu wierszy A-H."
+        )
+
+    records = []
+
+    for _, row in plate_map_data.iterrows():
+        plate_row = str(row.iloc[0]).strip().upper()
+
+        for position, plate_column in enumerate(
+            detected_columns,
+            start=1,
+        ):
+            sample_value = row.iloc[position]
+
+            if pd.isna(sample_value):
+                sample_id = ""
+            else:
+                sample_id = str(sample_value).strip()
+
+                if sample_id.lower() == "none":
+                    sample_id = ""
+
+            records.append(
+                {
+                    "well": f"{plate_row}{plate_column}",
+                    "plate_row": plate_row,
+                    "plate_column": plate_column,
+                    "sample_id": sample_id,
+                }
+            )
+
+    result = pd.DataFrame(records)
+
+    if len(result) != 96:
+        raise ValueError(
+            f"Oczekiwano 96 pozycji mapy, "
+            f"ale odczytano {len(result)}."
+        )
+
+    return result
+uploaded_files = st.file_uploader(
+    "Wybierz pliki XLSX z czytnika",
     type=["xlsx"],
+    accept_multiple_files=True,
 )
 
-if uploaded_file is None:
-    st.info("Wczytaj plik XLSX, aby rozpocząć analizę.")
+if not uploaded_files:
+    st.info(
+        "Wczytaj co najmniej jeden plik XLSX, "
+        "aby rozpocząć analizę."
+    )
     st.stop()
+
+uploaded_file = st.selectbox(
+    "Wybierz plik do podglądu",
+    options=uploaded_files,
+    format_func=lambda file: file.name,
+)
 
 try:
     excel_file = pd.ExcelFile(
@@ -178,10 +310,11 @@ try:
         header=None,
     )
 
-    preview_tab, absorbance_tab = st.tabs(
+    preview_tab, absorbance_tab, plate_map_tab = st.tabs(
         [
             "Podgląd całego arkusza",
             "Wyniki absorbancji",
+            "Mapa płytki",
         ]
     )
 
@@ -289,7 +422,93 @@ try:
             )
 
             st.info(str(plate_error))
+    with plate_map_tab:
+        st.subheader(
+            "Automatycznie odczytana mapa płytki"
+        )
 
+        try:
+            plate_map = extract_sample_plate_map(
+                raw_data
+            )
+
+            assigned_mask = (
+                plate_map["sample_id"]
+                .astype(str)
+                .str.strip()
+                .ne("")
+            )
+
+            assigned_wells = assigned_mask.sum()
+
+            unique_samples = (
+                plate_map.loc[
+                    assigned_mask,
+                    "sample_id",
+                ]
+                .nunique()
+            )
+
+            map_column_1, map_column_2, map_column_3 = (
+                st.columns(3)
+            )
+
+            map_column_1.metric(
+                "Wszystkie dołki",
+                len(plate_map),
+            )
+
+            map_column_2.metric(
+                "Opisane dołki",
+                assigned_wells,
+            )
+
+            map_column_3.metric(
+                "Unikalne identyfikatory",
+                unique_samples,
+            )
+
+            st.subheader("Lista dołków i identyfikatorów")
+
+            st.dataframe(
+                plate_map,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            plate_map_matrix = plate_map.pivot(
+                index="plate_row",
+                columns="plate_column",
+                values="sample_id",
+            )
+
+            st.subheader(
+                "Układ identyfikatorów na płytce"
+            )
+
+            st.dataframe(
+                plate_map_matrix,
+                use_container_width=True,
+            )
+
+            plate_map_csv = plate_map.to_csv(
+                index=False
+            ).encode("utf-8")
+
+            st.download_button(
+                label="Pobierz mapę płytki jako CSV",
+                data=plate_map_csv,
+                file_name="plate_map.csv",
+                mime="text/csv",
+            )
+
+        except ValueError as map_error:
+            st.warning(
+                "W wybranym arkuszu nie znaleziono "
+                "mapy próbek."
+            )
+
+            st.info(str(map_error))
 except Exception as error:
     st.error("Nie udało się odczytać pliku XLSX.")
     st.exception(error)
