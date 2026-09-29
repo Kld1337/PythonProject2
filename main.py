@@ -1,7 +1,13 @@
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from database import initialize_database
+
+from database import (
+    initialize_database,
+    load_experiments,
+    load_measurements,
+    save_experiment,
+)
 
 initialize_database()
 
@@ -428,6 +434,7 @@ try:
         plate_map_tab,
         combined_tab,
         statistics_tab,
+        database_tab,
     ) = st.tabs(
         [
             "Podgląd całego arkusza",
@@ -435,8 +442,10 @@ try:
             "Mapa płytki",
             "Połączone dane",
             "Statystyka",
+            "Zapis eksperymentu",
         ]
     )
+
 
     with preview_tab:
         st.subheader("Podgląd zawartości pliku")
@@ -841,6 +850,211 @@ try:
             )
 
             st.info(str(statistics_error))
+
+    with database_tab:
+        st.subheader("Zapis eksperymentu w bazie")
+
+        st.write(
+            "Uzupełnij metadane, sprawdź wybrany plik "
+            "oraz arkusz, a następnie zapisz eksperyment."
+        )
+
+        st.info(
+            "Obecna wersja importera obsługuje dane "
+            "absorbancji. Obsługę luminescencji i "
+            "fluorescencji dodamy jako osobne etapy."
+        )
+
+        with st.form("save_experiment_form"):
+            project_name = st.text_input(
+                "Nazwa projektu *",
+                placeholder="Np. Project SIRT6",
+            )
+
+            experiment_id = st.text_input(
+                "Unikalny identyfikator eksperymentu *",
+                placeholder="Np. HEM_2026_09_26_01",
+                help=(
+                    "Każdy eksperyment musi mieć inny "
+                    "identyfikator."
+                ),
+            )
+
+            assay_type = st.selectbox(
+                "Rodzaj analizy *",
+                options=[
+                    "Hemoliza",
+                    "Żywotność",
+                    "Stężenie glukozy",
+                    "Inne badanie absorbancji",
+                ],
+            )
+
+            experiment_date = st.date_input(
+                "Data eksperymentu *",
+            )
+
+            operator_name = st.text_input(
+                "Operator",
+                placeholder="Pole opcjonalne",
+            )
+
+            timepoint = st.text_input(
+                "Punkt czasowy",
+                placeholder="Np. 6 h, 24 h lub 48 h",
+            )
+
+            notes = st.text_area(
+                "Uwagi",
+                placeholder=(
+                    "Np. linia komórkowa, numer materiału, "
+                    "warunki inkubacji lub obserwacje."
+                ),
+            )
+
+            st.write(
+                f"**Plik źródłowy:** {uploaded_file.name}"
+            )
+
+            st.write(
+                f"**Wybrany arkusz:** {selected_sheet}"
+            )
+
+            save_submitted = st.form_submit_button(
+                "Zapisz eksperyment w bazie"
+            )
+
+        if save_submitted:
+            missing_fields = []
+
+            if not project_name.strip():
+                missing_fields.append("nazwa projektu")
+
+            if not experiment_id.strip():
+                missing_fields.append(
+                    "identyfikator eksperymentu"
+                )
+
+            if missing_fields:
+                st.error(
+                    "Uzupełnij wymagane pola: "
+                    + ", ".join(missing_fields)
+                    + "."
+                )
+
+            else:
+                try:
+                    plate_results_to_save = (
+                        extract_absorbance_plate(
+                            raw_data
+                        )
+                    )
+
+                    plate_map_to_save = (
+                        extract_sample_plate_map(
+                            raw_data
+                        )
+                    )
+
+                    combined_data_to_save = (
+                        combine_results_with_sample_map(
+                            plate_results_to_save,
+                            plate_map_to_save,
+                        )
+                    )
+
+                    metadata_to_save = {
+                        "experiment_id": (
+                            experiment_id.strip()
+                        ),
+                        "project_name": (
+                            project_name.strip()
+                        ),
+                        "assay_type": assay_type,
+                        "experiment_date": str(
+                            experiment_date
+                        ),
+                        "measurement_type": (
+                            "Absorbancja"
+                        ),
+                        "measurement_unit": "AU",
+                        "source_file": (
+                            uploaded_file.name
+                        ),
+                        "sheet_name": selected_sheet,
+                        "operator": (
+                            operator_name.strip()
+                        ),
+                        "timepoint": timepoint.strip(),
+                        "notes": notes.strip(),
+                    }
+
+                    save_experiment(
+                        metadata_to_save,
+                        combined_data_to_save,
+                    )
+
+                    st.success(
+                        "Eksperyment został zapisany. "
+                        "Dodano 1 rekord eksperymentu "
+                        "i 96 pomiarów."
+                    )
+
+                except ValueError as save_error:
+                    st.error(str(save_error))
+
+                except Exception as save_error:
+                    st.error(
+                        "Nie udało się zapisać "
+                        "eksperymentu w bazie."
+                    )
+
+                    st.exception(save_error)
+
+        st.divider()
+
+        st.subheader("Eksperymenty zapisane w bazie")
+
+        saved_experiments = load_experiments()
+
+        if saved_experiments.empty:
+            st.info(
+                "Baza nie zawiera jeszcze "
+                "zapisanych eksperymentów."
+            )
+
+        else:
+            st.dataframe(
+                saved_experiments,
+                width="stretch",
+                hide_index=True,
+            )
+
+            saved_experiment_id = st.selectbox(
+                "Wybierz zapisany eksperyment",
+                options=(
+                    saved_experiments[
+                        "experiment_id"
+                    ].tolist()
+                ),
+                key="saved_experiment_selector",
+            )
+
+            saved_measurements = load_measurements(
+                saved_experiment_id
+            )
+
+            st.write(
+                "Liczba pomiarów w wybranym "
+                f"eksperymencie: "
+                f"**{len(saved_measurements)}**"
+            )
+
+            st.dataframe(
+                saved_measurements,
+                width="stretch",
+                hide_index=True,
+            )
 except Exception as error:
     st.error("Nie udało się odczytać pliku XLSX.")
     st.exception(error)

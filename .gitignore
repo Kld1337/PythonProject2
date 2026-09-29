@@ -1,3 +1,9 @@
+.venv/
+.idea/
+__pycache__/
+*.pyc
+*.xlsx
+*.xls
 *.db
 *.db-journal
 *.sqlite
