@@ -354,6 +354,51 @@ def create_plate_heatmap(
     )
 
     return heatmap_figure
+def create_measurement_heatmap(
+    measurement_results: pd.DataFrame,
+    measurement_type: str,
+    measurement_unit: str,
+):
+    """
+    Tworzy heatmapę dowolnego rodzaju pomiaru:
+    absorbancji, fluorescencji lub luminescencji.
+    """
+
+    heatmap_data = measurement_results.pivot(
+        index="plate_row",
+        columns="plate_column",
+        values="raw_value",
+    )
+
+    heatmap_figure = px.imshow(
+        heatmap_data,
+        labels={
+            "x": "Kolumna płytki",
+            "y": "Wiersz płytki",
+            "color": measurement_unit,
+        },
+        x=heatmap_data.columns,
+        y=heatmap_data.index,
+        color_continuous_scale="Viridis",
+        text_auto=".4g",
+        aspect="auto",
+    )
+
+    heatmap_figure.update_layout(
+        title=(
+            f"Rozkład pomiaru: {measurement_type} "
+            f"[{measurement_unit}]"
+        ),
+        xaxis_title="Kolumna płytki",
+        yaxis_title="Wiersz płytki",
+    )
+
+    heatmap_figure.update_xaxes(
+        dtick=1,
+        side="top",
+    )
+
+    return heatmap_figure
 
 def create_empty_plate_map() -> pd.DataFrame:
     records = []
@@ -629,6 +674,7 @@ try:
 
     (
         preview_tab,
+        measurement_tab,
         absorbance_tab,
         plate_map_tab,
         combined_tab,
@@ -637,6 +683,7 @@ try:
     ) = st.tabs(
         [
             "Podgląd całego arkusza",
+            "Wyniki pomiaru",
             "Wyniki absorbancji",
             "Mapa płytki",
             "Połączone dane",
@@ -682,6 +729,188 @@ try:
                 "Nie wykryto macierzy płytki "
                 "w układzie A-H x 1-12."
             )
+
+    with measurement_tab:
+        st.subheader("Ogólne wyniki pomiaru")
+
+        detected_blocks = detect_plate_blocks(
+            raw_data
+        )
+
+        supported_blocks = (
+            get_supported_measurement_blocks(
+                detected_blocks
+            )
+        )
+
+        if not supported_blocks:
+            st.warning(
+                "Nie znaleziono obsługiwanego bloku "
+                "pomiarowego: Abs, RFU lub RLU."
+            )
+
+        else:
+            selected_measurement_block = st.selectbox(
+                "Wybierz blok pomiarowy",
+                options=supported_blocks,
+                format_func=lambda block: (
+                    str(block["label"])
+                ),
+                key="measurement_block_selector",
+            )
+
+            try:
+                measurement_config = (
+                    get_measurement_config(
+                        selected_measurement_block[
+                            "label"
+                        ]
+                    )
+                )
+
+                measurement_results = (
+                    extract_measurement_plate(
+                        raw_data,
+                        selected_measurement_block[
+                            "header_row"
+                        ],
+                    )
+                )
+
+                measurement_type = (
+                    measurement_config[
+                        "measurement_type"
+                    ]
+                )
+
+                measurement_unit = (
+                    measurement_config[
+                        "measurement_unit"
+                    ]
+                )
+
+                measurement_results[
+                    "measurement_type"
+                ] = measurement_type
+
+                measurement_results[
+                    "measurement_unit"
+                ] = measurement_unit
+
+                measurement_count = len(
+                    measurement_results
+                )
+
+                missing_count = (
+                    measurement_results["raw_value"]
+                    .isna()
+                    .sum()
+                )
+
+                minimum_value = (
+                    measurement_results["raw_value"]
+                    .min()
+                )
+
+                maximum_value = (
+                    measurement_results["raw_value"]
+                    .max()
+                )
+
+                (
+                    measurement_column_1,
+                    measurement_column_2,
+                    measurement_column_3,
+                    measurement_column_4,
+                ) = st.columns(4)
+
+                measurement_column_1.metric(
+                    "Rodzaj pomiaru",
+                    measurement_type,
+                )
+
+                measurement_column_2.metric(
+                    "Liczba dołków",
+                    measurement_count,
+                )
+
+                measurement_column_3.metric(
+                    "Brakujące wyniki",
+                    missing_count,
+                )
+
+                measurement_column_4.metric(
+                    "Jednostka",
+                    measurement_unit,
+                )
+
+                st.write(
+                    f"Zakres wyników: "
+                    f"**{minimum_value:.4g}–"
+                    f"{maximum_value:.4g} "
+                    f"{measurement_unit}**"
+                )
+
+                st.subheader(
+                    "Surowe wyniki pomiaru"
+                )
+
+                st.dataframe(
+                    measurement_results,
+                    width="stretch",
+                    hide_index=True,
+                )
+
+                st.subheader(
+                    "Heatmapa płytki 96-dołkowej"
+                )
+
+                generic_heatmap = (
+                    create_measurement_heatmap(
+                        measurement_results,
+                        measurement_type,
+                        measurement_unit,
+                    )
+                )
+
+                st.plotly_chart(
+                    generic_heatmap,
+                    width="stretch",
+                )
+
+                measurement_csv = (
+                    measurement_results.to_csv(
+                        index=False
+                    ).encode("utf-8")
+                )
+
+                safe_measurement_name = (
+                    measurement_type
+                    .lower()
+                    .replace(" ", "_")
+                )
+
+                st.download_button(
+                    label=(
+                        "Pobierz wyniki pomiaru "
+                        "jako CSV"
+                    ),
+                    data=measurement_csv,
+                    file_name=(
+                        f"{safe_measurement_name}"
+                        "_results.csv"
+                    ),
+                    mime="text/csv",
+                )
+
+            except ValueError as measurement_error:
+                st.error(
+                    "Nie udało się odczytać "
+                    "wybranego bloku pomiarowego."
+                )
+
+                st.info(str(measurement_error))
+
 
     with absorbance_tab:
         try:
