@@ -25,7 +25,136 @@ st.write(
     "z czytnika mikropłytek."
 )
 
+def detect_plate_blocks(
+    data: pd.DataFrame,
+) -> list:
+    """
+    Wykrywa bloki płytki 96-dołkowej na podstawie:
+    - kolumn 1-12,
+    - ośmiu kolejnych wierszy A-H.
+    """
 
+    detected_blocks = []
+
+    if data.shape[1] < 13:
+        return detected_blocks
+
+    for row_index in range(len(data)):
+        possible_columns = data.iloc[
+            row_index, 1:13
+        ].tolist()
+
+        try:
+            plate_columns = [
+                int(column)
+                for column in possible_columns
+            ]
+        except (TypeError, ValueError):
+            continue
+
+        if plate_columns != list(range(1, 13)):
+            continue
+
+        if row_index + 8 >= len(data):
+            continue
+
+        possible_rows = (
+            data.iloc[
+                row_index + 1:row_index + 9,
+                0,
+            ]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .tolist()
+        )
+
+        if possible_rows != list("ABCDEFGH"):
+            continue
+
+        block_label_value = data.iloc[
+            row_index, 0
+        ]
+
+        if pd.isna(block_label_value):
+            block_label = f"Block_{row_index}"
+        else:
+            block_label = str(
+                block_label_value
+            ).strip()
+
+        detected_blocks.append(
+            {
+                "label": block_label,
+                "header_row": row_index,
+            }
+        )
+
+    return detected_blocks
+
+
+def extract_measurement_plate(
+    data: pd.DataFrame,
+    header_row: int,
+) -> pd.DataFrame:
+    """
+    Pobiera wskazaną macierz A-H x 1-12
+    i przekształca ją do formatu:
+    jeden dołek = jeden wiersz.
+    """
+
+    plate_data = data.iloc[
+        header_row + 1:header_row + 9,
+        0:13,
+    ].copy()
+
+    detected_rows = (
+        plate_data.iloc[:, 0]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .tolist()
+    )
+
+    if detected_rows != list("ABCDEFGH"):
+        raise ValueError(
+            "Wskazany blok nie zawiera "
+            "pełnego układu wierszy A-H."
+        )
+
+    records = []
+
+    for _, row in plate_data.iterrows():
+        plate_row = str(
+            row.iloc[0]
+        ).strip().upper()
+
+        for plate_column in range(1, 13):
+            raw_value = pd.to_numeric(
+                row.iloc[plate_column],
+                errors="coerce",
+            )
+
+            records.append(
+                {
+                    "well": (
+                        f"{plate_row}{plate_column}"
+                    ),
+                    "plate_row": plate_row,
+                    "plate_column": plate_column,
+                    "raw_value": raw_value,
+                }
+            )
+
+    result = pd.DataFrame(records)
+
+    if len(result) != 96:
+        raise ValueError(
+            "Nie udało się odczytać "
+            "96 pozycji płytki."
+        )
+
+    return result
 def extract_absorbance_plate(data: pd.DataFrame) -> pd.DataFrame:
     """
     Wyszukuje macierz absorbancji w eksporcie czytnika
@@ -175,6 +304,7 @@ def create_empty_plate_map() -> pd.DataFrame:
             )
 
     return pd.DataFrame(records)
+
 def extract_sample_plate_map(
     data: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -459,6 +589,30 @@ try:
             raw_data,
             use_container_width=True,
         )
+        detected_blocks = detect_plate_blocks(
+            raw_data
+        )
+
+        st.subheader(
+            "Automatycznie wykryte macierze płytki"
+        )
+
+        if detected_blocks:
+            detected_blocks_table = pd.DataFrame(
+                detected_blocks
+            )
+
+            st.dataframe(
+                detected_blocks_table,
+                width="stretch",
+                hide_index=True,
+            )
+
+        else:
+            st.warning(
+                "Nie wykryto macierzy płytki "
+                "w układzie A-H x 1-12."
+            )
 
     with absorbance_tab:
         try:
