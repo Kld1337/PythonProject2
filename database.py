@@ -105,24 +105,43 @@ def save_experiment(
         metadata.get("notes", ""),
     )
 
+    if "raw_value" in combined_data.columns:
+        value_column = "raw_value"
+
+    elif "raw_absorbance" in combined_data.columns:
+        value_column = "raw_absorbance"
+
+    else:
+        raise ValueError(
+            "Dane nie zawierają kolumny raw_value "
+            "ani raw_absorbance."
+        )
+
     measurement_values = []
 
-    for row in combined_data.itertuples(index=False):
-        measurement_values.append(
+    for row in combined_data.to_dict(
+            orient="records"
+    ):
+        raw_value = row.get(value_column)
+
+    measurement_values.append(
+        (
+            experiment_id,
+            row["well"],
+            row["plate_row"],
+            int(row["plate_column"]),
+            row.get("sample_id", ""),
             (
-                experiment_id,
-                row.well,
-                row.plate_row,
-                int(row.plate_column),
-                row.sample_id,
-                (
-                    None
-                    if pd.isna(row.raw_absorbance)
-                    else float(row.raw_absorbance)
-                ),
-                row.sample_status,
-            )
+                None
+                if pd.isna(raw_value)
+                else float(raw_value)
+            ),
+            row.get(
+                "sample_status",
+                "Unassigned",
+            ),
         )
+    )
 
     with get_connection() as connection:
         connection.execute(

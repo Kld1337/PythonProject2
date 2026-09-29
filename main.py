@@ -565,6 +565,50 @@ def combine_results_with_sample_map(
         )
 
     return combined_data
+
+
+def combine_measurement_with_sample_map(
+    measurement_results: pd.DataFrame,
+    plate_map: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Łączy dowolny rodzaj pomiaru z identyfikatorami
+    próbek na podstawie oznaczenia dołka.
+    """
+
+    combined_data = measurement_results.merge(
+        plate_map[["well", "sample_id"]],
+        on="well",
+        how="left",
+        validate="one_to_one",
+    )
+
+    combined_data["sample_id"] = (
+        combined_data["sample_id"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    combined_data["sample_status"] = (
+        combined_data["sample_id"]
+        .ne("")
+        .map(
+            {
+                True: "Assigned",
+                False: "Unassigned",
+            }
+        )
+    )
+
+    if len(combined_data) != 96:
+        raise ValueError(
+            "Po połączeniu oczekiwano 96 dołków, "
+            f"ale otrzymano {len(combined_data)}."
+        )
+
+    return combined_data
+
 def calculate_sample_statistics(
     combined_data: pd.DataFrame,
     expected_replicates: int = 3,
