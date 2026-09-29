@@ -92,6 +92,75 @@ def detect_plate_blocks(
 
     return detected_blocks
 
+def get_measurement_config(
+    block_label: str,
+) -> dict:
+    """
+    Przypisuje etykiecie bloku rodzaj pomiaru,
+    jednostkę oraz nazwę wyświetlaną w aplikacji.
+    """
+
+    normalized_label = (
+        str(block_label)
+        .strip()
+        .upper()
+    )
+
+    measurement_configs = {
+        "ABS": {
+            "measurement_type": "Absorbancja",
+            "measurement_unit": "AU",
+            "value_column": "raw_value",
+        },
+        "RFU": {
+            "measurement_type": "Fluorescencja",
+            "measurement_unit": "RFU",
+            "value_column": "raw_value",
+        },
+        "RLU": {
+            "measurement_type": "Luminescencja",
+            "measurement_unit": "RLU",
+            "value_column": "raw_value",
+        },
+    }
+
+    if normalized_label not in measurement_configs:
+        raise ValueError(
+            "Nieobsługiwany blok pomiarowy: "
+            f"'{block_label}'."
+        )
+
+    return measurement_configs[normalized_label]
+
+def get_supported_measurement_blocks(
+    detected_blocks: list,
+) -> list:
+    """
+    Zwraca tylko obsługiwane bloki pomiarowe:
+    Abs, RFU i RLU.
+    Pomija sekcję Sample.
+    """
+
+    supported_labels = {
+        "ABS",
+        "RFU",
+        "RLU",
+    }
+
+    supported_blocks = []
+
+    for block in detected_blocks:
+        normalized_label = (
+            str(block["label"])
+            .strip()
+            .upper()
+        )
+
+        if normalized_label in supported_labels:
+            supported_blocks.append(block)
+
+    return supported_blocks
+
 
 def extract_measurement_plate(
     data: pd.DataFrame,
