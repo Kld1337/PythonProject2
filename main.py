@@ -676,6 +676,91 @@ def calculate_sample_statistics(
     return summary.sort_values(
         by=["qc_status", "sample_id"]
     ).reset_index(drop=True)
+def calculate_measurement_statistics(
+    combined_data: pd.DataFrame,
+    expected_replicates: int = 3,
+    cv_limit: float = 15.0,
+) -> pd.DataFrame:
+    """
+    Oblicza statystyki dla absorbancji,
+    fluorescencji i luminescencji.
+    """
+
+    assigned_data = combined_data.loc[
+        combined_data["sample_id"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+    ].copy()
+
+    assigned_data["raw_value"] = pd.to_numeric(
+        assigned_data["raw_value"],
+        errors="coerce",
+    )
+
+    assigned_data = assigned_data.dropna(
+        subset=["raw_value"]
+    )
+
+    if assigned_data.empty:
+        raise ValueError(
+            "Brak opisanych wyników liczbowych "
+            "do obliczenia statystyk."
+        )
+
+    summary = (
+        assigned_data
+        .groupby(
+            "sample_id",
+            as_index=False,
+        )
+        .agg(
+            n=("raw_value", "count"),
+            mean_value=("raw_value", "mean"),
+            sd_value=("raw_value", "std"),
+            minimum=("raw_value", "min"),
+            maximum=("raw_value", "max"),
+        )
+    )
+
+    summary["cv_pct"] = (
+        summary["sd_value"]
+        / summary["mean_value"]
+        * 100
+    )
+
+    summary.loc[
+        summary["mean_value"] == 0,
+        "cv_pct",
+    ] = pd.NA
+
+    summary["qc_status"] = "PASS"
+
+    summary.loc[
+        summary["n"] < expected_replicates,
+        "qc_status",
+    ] = "TOO_FEW"
+
+    summary.loc[
+        summary["n"] > expected_replicates,
+        "qc_status",
+    ] = "CHECK_N"
+
+    summary.loc[
+        (
+            summary["n"] == expected_replicates
+        )
+        & (
+            summary["cv_pct"] > cv_limit
+        ),
+        "qc_status",
+    ] = "HIGH_CV"
+
+    return summary.sort_values(
+        by=["qc_status", "sample_id"]
+    ).reset_index(drop=True)
+
 def calculate_database_statistics(
     measurements: pd.DataFrame,
     expected_replicates: int = 3,
@@ -1767,6 +1852,7 @@ try:
             max_value=20,
             value=3,
             step=1,
+            key="import_expected_replicates",
         )
 
         cv_limit = st.number_input(
@@ -1775,32 +1861,83 @@ try:
             max_value=100.0,
             value=15.0,
             step=1.0,
+            key="import_cv_limit",
         )
 
         try:
-            plate_results = extract_absorbance_plate(
-                raw_data
+            statistics_detected_blocks = (
+                detect_plate_blocks(raw_data)
             )
 
-            plate_map = extract_sample_plate_map(
-                raw_data
+            statistics_supported_blocks = (
+                get_supported_measurement_blocks(
+                    statistics_detected_blocks
+                )
             )
 
-            combined_data = (
-                combine_results_with_sample_map(
-                    plate_results,
-                    plate_map,
+            if not statistics_supported_blocks:
+                raise ValueError(
+                    "Nie znaleziono bloku pomiarowego "
+                    "Abs, RFU ani RLU."
+                )
+
+            selected_statistics_block = st.selectbox(
+                "Wybierz blok pomiarowy do analizy",
+                options=statistics_supported_blocks,
+                format_func=lambda block: str(
+                    block["label"]
+                ),
+                key="statistics_block_selector",
+            )
+
+            statistics_config = (
+                get_measurement_config(
+                    selected_statistics_block["label"]
+                )
+            )
+
+            statistics_measurements = (
+                extract_measurement_plate(
+                    raw_data,
+                    selected_statistics_block[
+                        "header_row"
+                    ],
+                )
+            )
+
+            statistics_plate_map = (
+                extract_sample_plate_map(raw_data)
+            )
+
+            statistics_combined_data = (
+                combine_measurement_with_sample_map(
+                    statistics_measurements,
+                    statistics_plate_map,
                 )
             )
 
             sample_statistics = (
-                calculate_sample_statistics(
-                    combined_data,
-                    expected_replicates=(
-                        int(expected_replicates)
+                calculate_measurement_statistics(
+                    statistics_combined_data,
+                    expected_replicates=int(
+                        expected_replicates
                     ),
                     cv_limit=cv_limit,
                 )
+            )
+
+            measurement_type = statistics_config[
+                "measurement_type"
+            ]
+
+            measurement_unit = statistics_config[
+                "measurement_unit"
+            ]
+
+            st.info(
+                f"Analizowany pomiar: "
+                f"{measurement_type} "
+                f"[{measurement_unit}]"
             )
 
             pass_count = (
@@ -1817,7 +1954,7 @@ try:
 
             check_n_count = (
                 sample_statistics["qc_status"]
-                .eq("CHECK_N")
+                .isin(["CHECK_N", "TOO_FEW"])
                 .sum()
             )
 
@@ -1844,23 +1981,56 @@ try:
             )
 
             statistics_column_4.metric(
-                "Nieprawidłowe n",
+                "Do sprawdzenia",
                 check_n_count,
             )
 
             st.dataframe(
                 sample_statistics.style.format(
                     {
-                        "mean_absorbance": "{:.4f}",
-                        "sd_absorbance": "{:.4f}",
-                        "minimum": "{:.4f}",
-                        "maximum": "{:.4f}",
+                        "mean_value": "{:.4g}",
+                        "sd_value": "{:.4g}",
+                        "minimum": "{:.4g}",
+                        "maximum": "{:.4g}",
                         "cv_pct": "{:.2f}",
                     },
                     na_rep="brak",
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
+            )
+
+            st.subheader(
+                "Średni wynik według identyfikatora"
+            )
+
+            statistics_figure = px.bar(
+                sample_statistics,
+                x="sample_id",
+                y="mean_value",
+                error_y="sd_value",
+                color="qc_status",
+                labels={
+                    "sample_id": "Identyfikator próbki",
+                    "mean_value": (
+                        f"Średni wynik "
+                        f"[{measurement_unit}]"
+                    ),
+                    "qc_status": "Status QC",
+                },
+                title=(
+                    f"{measurement_type}: "
+                    "średnia i odchylenie standardowe"
+                ),
+            )
+
+            statistics_figure.update_layout(
+                xaxis_tickangle=-45
+            )
+
+            st.plotly_chart(
+                statistics_figure,
+                width="stretch",
             )
 
             statistics_csv = (
@@ -1872,7 +2042,9 @@ try:
             st.download_button(
                 label="Pobierz statystyki jako CSV",
                 data=statistics_csv,
-                file_name="sample_statistics.csv",
+                file_name=(
+                    "measurement_statistics.csv"
+                ),
                 mime="text/csv",
             )
 
