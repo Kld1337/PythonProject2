@@ -1834,8 +1834,26 @@ try:
             "absorbancji. Obsługę luminescencji i "
             "fluorescencji dodamy jako osobne etapy."
         )
+        database_detected_blocks = detect_plate_blocks(
+            raw_data
+        )
 
+        database_supported_blocks = (
+            get_supported_measurement_blocks(
+                database_detected_blocks
+            )
+        )
         with st.form("save_experiment_form"):
+            selected_database_block = st.selectbox(
+                "Blok pomiarowy do zapisania *",
+                options=database_supported_blocks,
+                format_func=lambda block: str(
+                    block["label"]
+                ),
+                disabled=(
+                    not database_supported_blocks
+                ),
+            )
             project_name = st.text_input(
                 "Nazwa projektu *",
                 placeholder="Np. Project SIRT6",
@@ -1856,7 +1874,11 @@ try:
                     "Hemoliza",
                     "Żywotność",
                     "Stężenie glukozy",
+                    "Luminescencja - Fluc mRNA",
+                    "Fluorescencja - GFP mRNA",
                     "Inne badanie absorbancji",
+                    "Inne badanie luminescencji",
+                    "Inne badanie fluorescencji",
                 ],
             )
 
