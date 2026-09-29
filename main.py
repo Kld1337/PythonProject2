@@ -1610,90 +1610,152 @@ try:
             st.info(str(map_error))
 
     with combined_tab:
-            st.subheader(
-                "Wyniki absorbancji z identyfikatorami"
+        st.subheader(
+            "Wyniki pomiaru z identyfikatorami"
+        )
+
+        try:
+            combined_detected_blocks = (
+                detect_plate_blocks(raw_data)
             )
 
-            try:
-                plate_results = extract_absorbance_plate(
-                    raw_data
+            combined_supported_blocks = (
+                get_supported_measurement_blocks(
+                    combined_detected_blocks
+                )
+            )
+
+            if not combined_supported_blocks:
+                raise ValueError(
+                    "Nie znaleziono bloku pomiarowego "
+                    "Abs, RFU ani RLU."
                 )
 
-                plate_map = extract_sample_plate_map(
-                    raw_data
-                )
+            selected_combined_block = st.selectbox(
+                "Wybierz blok pomiarowy",
+                options=combined_supported_blocks,
+                format_func=lambda block: str(
+                    block["label"]
+                ),
+                key="combined_block_selector",
+            )
 
-                combined_data = (
-                    combine_results_with_sample_map(
-                        plate_results,
-                        plate_map,
-                    )
-                )
+            combined_config = get_measurement_config(
+                selected_combined_block["label"]
+            )
 
-                assigned_count = (
+            measurement_results_for_combining = (
+                extract_measurement_plate(
+                    raw_data,
+                    selected_combined_block[
+                        "header_row"
+                    ],
+                )
+            )
+
+            plate_map_for_combining = (
+                extract_sample_plate_map(raw_data)
+            )
+
+            combined_data = (
+                combine_measurement_with_sample_map(
+                    measurement_results_for_combining,
+                    plate_map_for_combining,
+                )
+            )
+
+            measurement_type = combined_config[
+                "measurement_type"
+            ]
+
+            measurement_unit = combined_config[
+                "measurement_unit"
+            ]
+
+            combined_data["measurement_type"] = (
+                measurement_type
+            )
+
+            combined_data["measurement_unit"] = (
+                measurement_unit
+            )
+
+            assigned_count = (
+                combined_data["sample_status"]
+                .eq("Assigned")
+                .sum()
+            )
+
+            unassigned_count = (
+                combined_data["sample_status"]
+                .eq("Unassigned")
+                .sum()
+            )
+
+            unique_sample_count = (
+                combined_data.loc[
                     combined_data["sample_status"]
-                    .eq("Assigned")
-                    .sum()
-                )
+                    .eq("Assigned"),
+                    "sample_id",
+                ]
+                    .nunique()
+            )
 
-                unassigned_count = (
-                    combined_data["sample_status"]
-                    .eq("Unassigned")
-                    .sum()
-                )
+            (
+                combined_column_1,
+                combined_column_2,
+                combined_column_3,
+                combined_column_4,
+            ) = st.columns(4)
 
-                unique_sample_count = (
-                    combined_data.loc[
-                        combined_data["sample_status"]
-                        .eq("Assigned"),
-                        "sample_id",
-                    ]
-                        .nunique()
-                )
+            combined_column_1.metric(
+                "Rodzaj pomiaru",
+                measurement_type,
+            )
 
-                combined_column_1, combined_column_2, combined_column_3 = (
-                    st.columns(3)
-                )
+            combined_column_2.metric(
+                "Opisane wyniki",
+                assigned_count,
+            )
 
-                combined_column_1.metric(
-              "Opisane wyniki",
-                    assigned_count,
-                )
+            combined_column_3.metric(
+                "Nieopisane wyniki",
+                unassigned_count,
+            )
 
-                combined_column_2.metric(
-              "Nieopisane wyniki",
-                    unassigned_count,
-                )
+            combined_column_4.metric(
+                "Unikalne identyfikatory",
+                unique_sample_count,
+            )
 
-                combined_column_3.metric(
-              "Unikalne identyfikatory",
-                    unique_sample_count,
-                )
+            st.dataframe(
+                combined_data,
+                width="stretch",
+                hide_index=True,
+            )
 
-                st.dataframe(
-                    combined_data,
-                    use_container_width=True,
-                    hide_index=True,
-                )
+            combined_csv = combined_data.to_csv(
+                index=False
+            ).encode("utf-8")
 
-                combined_csv = combined_data.to_csv(
-                    index=False
-                ).encode("utf-8")
+            st.download_button(
+                label=(
+                    "Pobierz połączone dane jako CSV"
+                ),
+                data=combined_csv,
+                file_name=(
+                    "combined_measurement_results.csv"
+                ),
+                mime="text/csv",
+            )
 
-                st.download_button(
-                    label="Pobierz połączone dane jako CSV",
-                    data=combined_csv,
-                    file_name="combined_plate_results.csv",
-                    mime="text/csv",
-                )
+        except ValueError as combined_error:
+            st.warning(
+                "Nie udało się połączyć wyników "
+                "z identyfikatorami."
+            )
 
-            except ValueError as combined_error:
-                st.warning(
-                    "Nie udało się połączyć absorbancji "
-                    "z identyfikatorami."
-                )
-
-                st.info(str(combined_error))
+            st.info(str(combined_error))
     with statistics_tab:
         st.subheader(
             "Statystyki według identyfikatora próbki"
