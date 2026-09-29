@@ -676,10 +676,95 @@ def calculate_sample_statistics(
     return summary.sort_values(
         by=["qc_status", "sample_id"]
     ).reset_index(drop=True)
+def calculate_database_statistics(
+    measurements: pd.DataFrame,
+    expected_replicates: int = 3,
+    cv_limit: float = 15.0,
+) -> pd.DataFrame:
+    """
+    Oblicza statystyki opisowe dla pomiarów
+    pobranych z bazy SQLite.
+    """
+
+    assigned_data = measurements.loc[
+        measurements["sample_id"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+    ].copy()
+
+    assigned_data["raw_value"] = pd.to_numeric(
+        assigned_data["raw_value"],
+        errors="coerce",
+    )
+
+    assigned_data = assigned_data.dropna(
+        subset=["raw_value"]
+    )
+
+    if assigned_data.empty:
+        raise ValueError(
+            "Wybrany eksperyment nie zawiera "
+            "opisanych wyników liczbowych."
+        )
+
+    summary = (
+        assigned_data
+        .groupby(
+            "sample_id",
+            as_index=False,
+        )
+        .agg(
+            n=("raw_value", "count"),
+            mean_value=("raw_value", "mean"),
+            sd_value=("raw_value", "std"),
+            minimum=("raw_value", "min"),
+            maximum=("raw_value", "max"),
+        )
+    )
+
+    summary["cv_pct"] = (
+        summary["sd_value"]
+        / summary["mean_value"]
+        * 100
+    )
+
+    summary.loc[
+        summary["mean_value"] == 0,
+        "cv_pct",
+    ] = pd.NA
+
+    summary["qc_status"] = "PASS"
+
+    summary.loc[
+        summary["n"] < expected_replicates,
+        "qc_status",
+    ] = "TOO_FEW"
+
+    summary.loc[
+        summary["n"] > expected_replicates,
+        "qc_status",
+    ] = "CHECK_N"
+
+    summary.loc[
+        (
+            summary["n"] == expected_replicates
+        )
+        & (
+            summary["cv_pct"] > cv_limit
+        ),
+        "qc_status",
+    ] = "HIGH_CV"
+
+    return summary.sort_values(
+        by=["qc_status", "sample_id"]
+    ).reset_index(drop=True)
+
 def show_database_browser() -> None:
     """
-    Wyświetla eksperymenty i pomiary zapisane
-    lokalnie w bazie SQLite.
+    Wyświetla zapisane eksperymenty oraz wykonuje
+    analizę wybranego eksperymentu bez uploadu XLSX.
     """
 
     st.header("Baza eksperymentów")
@@ -693,29 +778,39 @@ def show_database_browser() -> None:
         )
         return
 
-    st.subheader("Zapisane eksperymenty")
-
-    st.dataframe(
-        saved_experiments,
-        width="stretch",
-        hide_index=True,
+    project_options = sorted(
+        saved_experiments["project_name"]
+        .dropna()
+        .astype(str)
+        .unique()
+        .tolist()
     )
 
-    experiment_options = saved_experiments[
+    selected_project = st.selectbox(
+        "Wybierz projekt",
+        options=project_options,
+    )
+
+    project_experiments = saved_experiments.loc[
+        saved_experiments["project_name"]
+        == selected_project
+    ].copy()
+
+    experiment_options = project_experiments[
         [
             "experiment_id",
             "project_name",
             "assay_type",
             "experiment_date",
             "measurement_type",
+            "measurement_unit",
         ]
     ].to_dict(orient="records")
 
     selected_experiment = st.selectbox(
-        "Wybierz eksperyment do wyświetlenia",
+        "Wybierz eksperyment",
         options=experiment_options,
         format_func=lambda experiment: (
-            f"{experiment['project_name']} | "
             f"{experiment['assay_type']} | "
             f"{experiment['experiment_date']} | "
             f"{experiment['experiment_id']}"
@@ -731,60 +826,319 @@ def show_database_browser() -> None:
         selected_experiment_id
     )
 
-    st.subheader("Informacje o wybranym eksperymencie")
-
-    selected_metadata = saved_experiments.loc[
-        saved_experiments["experiment_id"]
+    selected_metadata = project_experiments.loc[
+        project_experiments["experiment_id"]
         == selected_experiment_id
-    ]
+    ].copy()
 
-    st.dataframe(
-        selected_metadata,
-        width="stretch",
-        hide_index=True,
+    (
+        overview_tab,
+        measurements_tab,
+        statistics_tab,
+        charts_tab,
+    ) = st.tabs(
+        [
+            "Podsumowanie",
+            "Pomiary",
+            "Statystyki",
+            "Wykresy",
+        ]
     )
 
-    measurement_column_1, measurement_column_2 = (
-        st.columns(2)
-    )
+    with overview_tab:
+        st.subheader("Metadane eksperymentu")
 
-    measurement_column_1.metric(
-        "Liczba pomiarów",
-        len(selected_measurements),
-    )
+        st.dataframe(
+            selected_metadata,
+            width="stretch",
+            hide_index=True,
+        )
 
-    measurement_column_2.metric(
-        "Opisane dołki",
-        (
+        assigned_count = (
             selected_measurements["sample_id"]
             .fillna("")
             .astype(str)
             .str.strip()
             .ne("")
             .sum()
-        ),
-    )
+        )
 
-    st.subheader("Pomiary wybranego eksperymentu")
+        unique_samples = (
+            selected_measurements.loc[
+                selected_measurements["sample_id"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .ne(""),
+                "sample_id",
+            ]
+            .nunique()
+        )
 
-    st.dataframe(
-        selected_measurements,
-        width="stretch",
-        hide_index=True,
-    )
+        (
+            overview_column_1,
+            overview_column_2,
+            overview_column_3,
+        ) = st.columns(3)
 
-    database_csv = selected_measurements.to_csv(
-        index=False
-    ).encode("utf-8")
+        overview_column_1.metric(
+            "Wszystkie pomiary",
+            len(selected_measurements),
+        )
 
-    st.download_button(
-        label="Pobierz pomiary eksperymentu jako CSV",
-        data=database_csv,
-        file_name=(
-            f"{selected_experiment_id}_measurements.csv"
-        ),
-        mime="text/csv",
-    )
+        overview_column_2.metric(
+            "Opisane dołki",
+            assigned_count,
+        )
+
+        overview_column_3.metric(
+            "Unikalne identyfikatory",
+            unique_samples,
+        )
+
+    with measurements_tab:
+        st.subheader("Pomiary wybranego eksperymentu")
+
+        st.dataframe(
+            selected_measurements,
+            width="stretch",
+            hide_index=True,
+        )
+
+        measurements_csv = (
+            selected_measurements.to_csv(
+                index=False
+            ).encode("utf-8")
+        )
+
+        st.download_button(
+            label="Pobierz pomiary jako CSV",
+            data=measurements_csv,
+            file_name=(
+                f"{selected_experiment_id}"
+                "_measurements.csv"
+            ),
+            mime="text/csv",
+        )
+
+    with statistics_tab:
+        st.subheader(
+            "Statystyki według identyfikatora próbki"
+        )
+
+        expected_replicates = st.number_input(
+            "Oczekiwana liczba powtórzeń",
+            min_value=1,
+            max_value=20,
+            value=3,
+            step=1,
+            key="database_expected_replicates",
+        )
+
+        cv_limit = st.number_input(
+            "Maksymalne CV [%]",
+            min_value=0.0,
+            max_value=100.0,
+            value=15.0,
+            step=1.0,
+            key="database_cv_limit",
+        )
+
+        try:
+            database_statistics = (
+                calculate_database_statistics(
+                    selected_measurements,
+                    expected_replicates=int(
+                        expected_replicates
+                    ),
+                    cv_limit=cv_limit,
+                )
+            )
+
+            pass_count = (
+                database_statistics["qc_status"]
+                .eq("PASS")
+                .sum()
+            )
+
+            high_cv_count = (
+                database_statistics["qc_status"]
+                .eq("HIGH_CV")
+                .sum()
+            )
+
+            check_n_count = (
+                database_statistics["qc_status"]
+                .isin(["CHECK_N", "TOO_FEW"])
+                .sum()
+            )
+
+            (
+                statistic_column_1,
+                statistic_column_2,
+                statistic_column_3,
+                statistic_column_4,
+            ) = st.columns(4)
+
+            statistic_column_1.metric(
+                "Identyfikatory",
+                len(database_statistics),
+            )
+
+            statistic_column_2.metric(
+                "PASS",
+                pass_count,
+            )
+
+            statistic_column_3.metric(
+                "Wysokie CV",
+                high_cv_count,
+            )
+
+            statistic_column_4.metric(
+                "Do sprawdzenia",
+                check_n_count,
+            )
+
+            st.dataframe(
+                database_statistics.style.format(
+                    {
+                        "mean_value": "{:.4g}",
+                        "sd_value": "{:.4g}",
+                        "minimum": "{:.4g}",
+                        "maximum": "{:.4g}",
+                        "cv_pct": "{:.2f}",
+                    },
+                    na_rep="brak",
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+            statistics_csv = (
+                database_statistics.to_csv(
+                    index=False
+                ).encode("utf-8")
+            )
+
+            st.download_button(
+                label="Pobierz statystyki jako CSV",
+                data=statistics_csv,
+                file_name=(
+                    f"{selected_experiment_id}"
+                    "_statistics.csv"
+                ),
+                mime="text/csv",
+            )
+
+        except ValueError as statistics_error:
+            st.warning(str(statistics_error))
+
+    with charts_tab:
+        st.subheader("Heatmapa zapisanej płytki")
+
+        chart_measurements = (
+            selected_measurements.copy()
+        )
+
+        chart_measurements["raw_value"] = (
+            pd.to_numeric(
+                chart_measurements["raw_value"],
+                errors="coerce",
+            )
+        )
+
+        heatmap_data = chart_measurements.pivot(
+            index="plate_row",
+            columns="plate_column",
+            values="raw_value",
+        )
+
+        measurement_type = selected_experiment[
+            "measurement_type"
+        ]
+
+        measurement_unit = selected_experiment[
+            "measurement_unit"
+        ]
+
+        database_heatmap = px.imshow(
+            heatmap_data,
+            labels={
+                "x": "Kolumna płytki",
+                "y": "Wiersz płytki",
+                "color": measurement_unit,
+            },
+            x=heatmap_data.columns,
+            y=heatmap_data.index,
+            color_continuous_scale="Viridis",
+            text_auto=".4g",
+            aspect="auto",
+        )
+
+        database_heatmap.update_layout(
+            title=(
+                f"{measurement_type} "
+                f"[{measurement_unit}]"
+            )
+        )
+
+        database_heatmap.update_xaxes(
+            dtick=1,
+            side="top",
+        )
+
+        st.plotly_chart(
+            database_heatmap,
+            width="stretch",
+        )
+
+        try:
+            chart_statistics = (
+                calculate_database_statistics(
+                    selected_measurements,
+                    expected_replicates=(
+                        int(expected_replicates)
+                    ),
+                    cv_limit=cv_limit,
+                )
+            )
+
+            st.subheader(
+                "Średni wynik według identyfikatora"
+            )
+
+            mean_figure = px.bar(
+                chart_statistics,
+                x="sample_id",
+                y="mean_value",
+                error_y="sd_value",
+                color="qc_status",
+                labels={
+                    "sample_id": "Identyfikator próbki",
+                    "mean_value": (
+                        f"Średni wynik "
+                        f"[{measurement_unit}]"
+                    ),
+                    "qc_status": "Status QC",
+                },
+                title=(
+                    "Średnia wartość pomiaru "
+                    "z odchyleniem standardowym"
+                ),
+            )
+
+            mean_figure.update_layout(
+                xaxis_tickangle=-45
+            )
+
+            st.plotly_chart(
+                mean_figure,
+                width="stretch",
+            )
+
+        except ValueError as chart_error:
+            st.warning(str(chart_error))
 application_view = st.sidebar.radio(
     "Wybierz moduł",
     options=[
@@ -796,7 +1150,7 @@ application_view = st.sidebar.radio(
 if application_view == "Baza eksperymentów":
     show_database_browser()
     st.stop()
-    
+
 uploaded_files = st.file_uploader(
     "Wybierz pliki XLSX z czytnika",
     type=["xlsx"],
