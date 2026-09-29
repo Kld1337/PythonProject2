@@ -676,7 +676,127 @@ def calculate_sample_statistics(
     return summary.sort_values(
         by=["qc_status", "sample_id"]
     ).reset_index(drop=True)
+def show_database_browser() -> None:
+    """
+    Wyświetla eksperymenty i pomiary zapisane
+    lokalnie w bazie SQLite.
+    """
 
+    st.header("Baza eksperymentów")
+
+    saved_experiments = load_experiments()
+
+    if saved_experiments.empty:
+        st.info(
+            "Baza nie zawiera jeszcze zapisanych "
+            "eksperymentów."
+        )
+        return
+
+    st.subheader("Zapisane eksperymenty")
+
+    st.dataframe(
+        saved_experiments,
+        width="stretch",
+        hide_index=True,
+    )
+
+    experiment_options = saved_experiments[
+        [
+            "experiment_id",
+            "project_name",
+            "assay_type",
+            "experiment_date",
+            "measurement_type",
+        ]
+    ].to_dict(orient="records")
+
+    selected_experiment = st.selectbox(
+        "Wybierz eksperyment do wyświetlenia",
+        options=experiment_options,
+        format_func=lambda experiment: (
+            f"{experiment['project_name']} | "
+            f"{experiment['assay_type']} | "
+            f"{experiment['experiment_date']} | "
+            f"{experiment['experiment_id']}"
+        ),
+        key="database_experiment_selector",
+    )
+
+    selected_experiment_id = selected_experiment[
+        "experiment_id"
+    ]
+
+    selected_measurements = load_measurements(
+        selected_experiment_id
+    )
+
+    st.subheader("Informacje o wybranym eksperymencie")
+
+    selected_metadata = saved_experiments.loc[
+        saved_experiments["experiment_id"]
+        == selected_experiment_id
+    ]
+
+    st.dataframe(
+        selected_metadata,
+        width="stretch",
+        hide_index=True,
+    )
+
+    measurement_column_1, measurement_column_2 = (
+        st.columns(2)
+    )
+
+    measurement_column_1.metric(
+        "Liczba pomiarów",
+        len(selected_measurements),
+    )
+
+    measurement_column_2.metric(
+        "Opisane dołki",
+        (
+            selected_measurements["sample_id"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .ne("")
+            .sum()
+        ),
+    )
+
+    st.subheader("Pomiary wybranego eksperymentu")
+
+    st.dataframe(
+        selected_measurements,
+        width="stretch",
+        hide_index=True,
+    )
+
+    database_csv = selected_measurements.to_csv(
+        index=False
+    ).encode("utf-8")
+
+    st.download_button(
+        label="Pobierz pomiary eksperymentu jako CSV",
+        data=database_csv,
+        file_name=(
+            f"{selected_experiment_id}_measurements.csv"
+        ),
+        mime="text/csv",
+    )
+application_view = st.sidebar.radio(
+    "Wybierz moduł",
+    options=[
+        "Import i analiza pliku",
+        "Baza eksperymentów",
+    ],
+)
+
+if application_view == "Baza eksperymentów":
+    show_database_browser()
+    st.stop()
+    
 uploaded_files = st.file_uploader(
     "Wybierz pliki XLSX z czytnika",
     type=["xlsx"],
