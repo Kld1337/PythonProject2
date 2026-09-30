@@ -845,6 +845,62 @@ def calculate_database_statistics(
     return summary.sort_values(
         by=["qc_status", "sample_id"]
     ).reset_index(drop=True)
+def prepare_concentration_chart_data(
+    statistics: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Przygotowuje statystyki do wykresu:
+    - usuwa blanki,
+    - usuwa kontrole CTRL i control,
+    - zachowuje tylko liczbowe stężenia,
+    - sortuje od najmniejszego stężenia.
+    """
+
+    chart_data = statistics.copy()
+
+    normalized_sample_id = (
+        chart_data["sample_id"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    excluded_mask = (
+        normalized_sample_id
+        .str.lower()
+        .str.startswith(
+            (
+                "blank",
+                "ctrl",
+                "control",
+            )
+        )
+    )
+
+    chart_data = chart_data.loc[
+        ~excluded_mask
+    ].copy()
+
+    chart_data["concentration"] = pd.to_numeric(
+        chart_data["sample_id"],
+        errors="coerce",
+    )
+
+    chart_data = chart_data.dropna(
+        subset=["concentration"]
+    )
+
+    chart_data = chart_data.sort_values(
+        by="concentration",
+        ascending=True,
+    ).reset_index(drop=True)
+
+    chart_data["concentration_label"] = (
+        chart_data["concentration"]
+        .map(lambda value: f"{value:g}")
+    )
+
+    return chart_data
 
 def show_database_browser() -> None:
     """
@@ -1179,48 +1235,77 @@ def show_database_browser() -> None:
         )
 
         try:
-            chart_statistics = (
+            database_statistics = (
                 calculate_database_statistics(
                     selected_measurements,
-                    expected_replicates=(
-                        int(expected_replicates)
+                    expected_replicates=int(
+                        expected_replicates
                     ),
                     cv_limit=cv_limit,
                 )
             )
 
-            st.subheader(
-                "Średni wynik według identyfikatora"
+            database_chart_statistics = (
+                prepare_concentration_chart_data(
+                    database_statistics
+                )
             )
 
-            mean_figure = px.bar(
-                chart_statistics,
-                x="sample_id",
-                y="mean_value",
-                error_y="sd_value",
-                color="qc_status",
-                labels={
-                    "sample_id": "Identyfikator próbki",
-                    "mean_value": (
-                        f"Średni wynik "
-                        f"[{measurement_unit}]"
+            if database_chart_statistics.empty:
+                st.warning(
+                    "Brak liczbowych stężeń do "
+                    "utworzenia wykresu po usunięciu "
+                    "blanków i kontroli."
+                )
+
+            else:
+                st.subheader(
+                    "Średni wynik według stężenia"
+                )
+
+                concentration_order = (
+                    database_chart_statistics[
+                        "concentration_label"
+                    ].tolist()
+                )
+
+                mean_figure = px.bar(
+                    database_chart_statistics,
+                    x="concentration_label",
+                    y="mean_value",
+                    error_y="sd_value",
+                    color="qc_status",
+                    category_orders={
+                        "concentration_label": (
+                            concentration_order
+                        ),
+                    },
+                    labels={
+                        "concentration_label": "Stężenie",
+                        "mean_value": (
+                            f"Średni wynik "
+                            f"[{measurement_unit}]"
+                        ),
+                        "qc_status": "Status QC",
+                    },
+                    title=(
+                        f"{measurement_type}: "
+                        "średnia i odchylenie standardowe"
                     ),
-                    "qc_status": "Status QC",
-                },
-                title=(
-                    "Średnia wartość pomiaru "
-                    "z odchyleniem standardowym"
-                ),
-            )
+                )
 
-            mean_figure.update_layout(
-                xaxis_tickangle=-45
-            )
+                mean_figure.update_layout(
+                    xaxis_title="Stężenie",
+                    xaxis_type="category",
+                )
 
-            st.plotly_chart(
-                mean_figure,
-                width="stretch",
-            )
+                st.plotly_chart(
+                    mean_figure,
+                    width="stretch",
+                )
+
+        except ValueError as chart_error:
+            st.warning(str(chart_error))
 
         except ValueError as chart_error:
             st.warning(str(chart_error))
@@ -1235,6 +1320,7 @@ application_view = st.sidebar.radio(
 if application_view == "Baza eksperymentów":
     show_database_browser()
     st.stop()
+
 
 uploaded_files = st.file_uploader(
     "Wybierz pliki XLSX z czytnika",
@@ -2000,38 +2086,64 @@ try:
                 hide_index=True,
             )
 
-            st.subheader(
-                "Średni wynik według identyfikatora"
+            chart_statistics = (
+                prepare_concentration_chart_data(
+                    sample_statistics
+                )
             )
 
-            statistics_figure = px.bar(
-                sample_statistics,
-                x="sample_id",
-                y="mean_value",
-                error_y="sd_value",
-                color="qc_status",
-                labels={
-                    "sample_id": "Identyfikator próbki",
-                    "mean_value": (
-                        f"Średni wynik "
-                        f"[{measurement_unit}]"
+            if chart_statistics.empty:
+                st.warning(
+                    "Brak liczbowych stężeń do "
+                    "utworzenia wykresu po usunięciu "
+                    "blanków i kontroli."
+                )
+
+            else:
+                st.subheader(
+                    "Średni wynik według stężenia"
+                )
+
+                concentration_order = (
+                    chart_statistics[
+                        "concentration_label"
+                    ].tolist()
+                )
+
+                statistics_figure = px.bar(
+                    chart_statistics,
+                    x="concentration_label",
+                    y="mean_value",
+                    error_y="sd_value",
+                    color="qc_status",
+                    category_orders={
+                        "concentration_label": (
+                            concentration_order
+                        ),
+                    },
+                    labels={
+                        "concentration_label": "Stężenie",
+                        "mean_value": (
+                            f"Średni wynik "
+                            f"[{measurement_unit}]"
+                        ),
+                        "qc_status": "Status QC",
+                    },
+                    title=(
+                        f"{measurement_type}: "
+                        "średnia i odchylenie standardowe"
                     ),
-                    "qc_status": "Status QC",
-                },
-                title=(
-                    f"{measurement_type}: "
-                    "średnia i odchylenie standardowe"
-                ),
-            )
+                )
 
-            statistics_figure.update_layout(
-                xaxis_tickangle=-45
-            )
+                statistics_figure.update_layout(
+                    xaxis_title="Stężenie",
+                    xaxis_type="category",
+                )
 
-            st.plotly_chart(
-                statistics_figure,
-                width="stretch",
-            )
+                st.plotly_chart(
+                    statistics_figure,
+                    width="stretch",
+                )
 
             statistics_csv = (
                 sample_statistics.to_csv(
