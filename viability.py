@@ -1,7 +1,10 @@
-import pandas as pd
+import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+
+from scipy.optimize import curve_fit
 
 
 def extract_numeric_concentration(
@@ -423,6 +426,337 @@ def create_viability_chart(
 
     return figure
 
+def four_parameter_logistic(
+    concentration: np.ndarray,
+    bottom: float,
+    top: float,
+    ic50: float,
+    hill_slope: float,
+) -> np.ndarray:
+    """
+    Czteroparametrowy model logistyczny 4PL
+    dla malejącej odpowiedzi zależnej od dawki.
+    """
+
+    return bottom + (
+        (top - bottom)
+        / (
+            1
+            + (
+                concentration / ic50
+            ) ** hill_slope
+        )
+    )
+
+
+def fit_viability_4pl(
+    viability_summary: pd.DataFrame,
+) -> dict:
+    """
+    Dopasowuje model 4PL do średniej żywotności
+    w zależności od stężenia.
+    """
+
+    fit_data = viability_summary[
+        [
+            "concentration",
+            "mean_viability_pct",
+            "sd_viability_pct",
+        ]
+    ].copy()
+
+    fit_data["concentration"] = pd.to_numeric(
+        fit_data["concentration"],
+        errors="coerce",
+    )
+
+    fit_data["mean_viability_pct"] = pd.to_numeric(
+        fit_data["mean_viability_pct"],
+        errors="coerce",
+    )
+
+    fit_data["sd_viability_pct"] = pd.to_numeric(
+        fit_data["sd_viability_pct"],
+        errors="coerce",
+    )
+
+    fit_data = fit_data.dropna(
+        subset=[
+            "concentration",
+            "mean_viability_pct",
+        ]
+    )
+
+    fit_data = fit_data.loc[
+        fit_data["concentration"] > 0
+    ].copy()
+
+    fit_data = fit_data.sort_values(
+        "concentration"
+    ).reset_index(drop=True)
+
+    if fit_data["concentration"].nunique() < 4:
+        raise ValueError(
+            "Do dopasowania modelu 4PL potrzebne są "
+            "co najmniej cztery różne dodatnie stężenia."
+        )
+
+    minimum_response = float(
+        fit_data["mean_viability_pct"].min()
+    )
+
+    maximum_response = float(
+        fit_data["mean_viability_pct"].max()
+    )
+
+    crosses_50_percent = (
+        minimum_response <= 50
+        and maximum_response >= 50
+    )
+
+    x_values = fit_data[
+        "concentration"
+    ].to_numpy(dtype=float)
+
+    y_values = fit_data[
+        "mean_viability_pct"
+    ].to_numpy(dtype=float)
+
+    initial_bottom = max(
+        -10.0,
+        minimum_response,
+    )
+
+    initial_top = min(
+        150.0,
+        maximum_response,
+    )
+
+    closest_to_50_index = int(
+        np.argmin(
+            np.abs(y_values - 50)
+        )
+    )
+
+    initial_ic50 = float(
+        x_values[closest_to_50_index]
+    )
+
+    fitted_parameters, covariance_matrix = curve_fit(
+        four_parameter_logistic,
+        x_values,
+        y_values,
+        p0=[
+            initial_bottom,
+            initial_top,
+            initial_ic50,
+            1.0,
+        ],
+        bounds=(
+            [
+                -50.0,
+                20.0,
+                float(x_values.min()) / 100.0,
+                0.05,
+            ],
+            [
+                100.0,
+                200.0,
+                float(x_values.max()) * 100.0,
+                10.0,
+            ],
+        ),
+        maxfev=50000,
+    )
+
+    (
+        bottom,
+        top,
+        ic50,
+        hill_slope,
+    ) = fitted_parameters
+
+    predicted_values = four_parameter_logistic(
+        x_values,
+        bottom,
+        top,
+        ic50,
+        hill_slope,
+    )
+
+    residual_sum_of_squares = float(
+        np.sum(
+            (
+                y_values
+                - predicted_values
+            ) ** 2
+        )
+    )
+
+    total_sum_of_squares = float(
+        np.sum(
+            (
+                y_values
+                - np.mean(y_values)
+            ) ** 2
+        )
+    )
+
+    if total_sum_of_squares == 0:
+        r_squared = np.nan
+    else:
+        r_squared = (
+            1
+            - residual_sum_of_squares
+            / total_sum_of_squares
+        )
+
+    parameter_errors = np.sqrt(
+        np.diag(covariance_matrix)
+    )
+
+    ic50_standard_error = float(
+        parameter_errors[2]
+    )
+
+    ic50_ci_lower = max(
+        0.0,
+        float(
+            ic50
+            - 1.96 * ic50_standard_error
+        ),
+    )
+
+    ic50_ci_upper = float(
+        ic50
+        + 1.96 * ic50_standard_error
+    )
+
+    minimum_concentration = float(
+        x_values.min()
+    )
+
+    maximum_concentration = float(
+        x_values.max()
+    )
+
+    ic50_in_range = (
+        minimum_concentration
+        <= ic50
+        <= maximum_concentration
+    )
+
+    curve_x = np.logspace(
+        np.log10(minimum_concentration),
+        np.log10(maximum_concentration),
+        300,
+    )
+
+    curve_y = four_parameter_logistic(
+        curve_x,
+        bottom,
+        top,
+        ic50,
+        hill_slope,
+    )
+
+    return {
+        "fit_data": fit_data,
+        "bottom": float(bottom),
+        "top": float(top),
+        "ic50": float(ic50),
+        "hill_slope": float(hill_slope),
+        "r_squared": float(r_squared),
+        "ic50_ci_lower": ic50_ci_lower,
+        "ic50_ci_upper": ic50_ci_upper,
+        "ic50_in_range": ic50_in_range,
+        "crosses_50_percent": crosses_50_percent,
+        "minimum_concentration": (
+            minimum_concentration
+        ),
+        "maximum_concentration": (
+            maximum_concentration
+        ),
+        "curve_x": curve_x,
+        "curve_y": curve_y,
+    }
+
+
+def create_4pl_viability_figure(
+    fit_result: dict,
+):
+    """
+    Tworzy wykres krzywej 4PL z punktami
+    średniej żywotności i odchyleniem standardowym.
+    """
+
+    fit_data = fit_result["fit_data"]
+
+    figure = go.Figure()
+
+    figure.add_trace(
+        go.Scatter(
+            x=fit_data["concentration"],
+            y=fit_data["mean_viability_pct"],
+            error_y={
+                "type": "data",
+                "array": (
+                    fit_data[
+                        "sd_viability_pct"
+                    ]
+                ),
+                "visible": True,
+            },
+            mode="markers",
+            name="Średnia ± SD",
+            marker={
+                "size": 10,
+                "color": "black",
+            },
+        )
+    )
+
+    figure.add_trace(
+        go.Scatter(
+            x=fit_result["curve_x"],
+            y=fit_result["curve_y"],
+            mode="lines",
+            name="Dopasowanie 4PL",
+            line={
+                "width": 3,
+            },
+        )
+    )
+
+    figure.add_hline(
+        y=50,
+        line_dash="dot",
+        line_color="gray",
+        annotation_text="50% żywotności",
+    )
+
+    if fit_result["ic50_in_range"]:
+        figure.add_vline(
+            x=fit_result["ic50"],
+            line_dash="dash",
+            line_color="red",
+            annotation_text=(
+                f"IC50 = "
+                f"{fit_result['ic50']:.4g}"
+            ),
+        )
+
+    figure.update_layout(
+        title="Krzywa dawka–odpowiedź 4PL",
+        xaxis_title="Stężenie",
+        yaxis_title="Żywotność [%]",
+        xaxis_type="log",
+        yaxis={
+            "rangemode": "tozero",
+        },
+    )
+
+    return figure
 
 def show_viability_module(
         combined_data: pd.DataFrame,
@@ -569,7 +903,169 @@ def show_viability_module(
             viability_figure,
             width="stretch",
         )
+        st.divider()
 
+        st.subheader(
+            "Dopasowanie 4PL i oszacowanie IC50"
+        )
+
+        enable_4pl = st.checkbox(
+            "Wykonaj dopasowanie 4PL",
+            value=True,
+            key="enable_viability_4pl",
+        )
+
+        if enable_4pl:
+            try:
+                fit_result = fit_viability_4pl(
+                    viability_summary
+                )
+
+                (
+                    fit_column_1,
+                    fit_column_2,
+                    fit_column_3,
+                    fit_column_4,
+                ) = st.columns(4)
+
+                fit_column_1.metric(
+                    "IC50",
+                    f"{fit_result['ic50']:.4g}",
+                )
+
+                fit_column_2.metric(
+                    "Top",
+                    f"{fit_result['top']:.2f}%",
+                )
+
+                fit_column_3.metric(
+                    "Bottom",
+                    f"{fit_result['bottom']:.2f}%",
+                )
+
+                fit_column_4.metric(
+                    "R²",
+                    f"{fit_result['r_squared']:.4f}",
+                )
+
+                st.write(
+                    "**Hill slope:** "
+                    f"{fit_result['hill_slope']:.4g}"
+                )
+
+                st.write(
+                    "**Przybliżony 95% CI dla IC50:** "
+                    f"{fit_result['ic50_ci_lower']:.4g}"
+                    "–"
+                    f"{fit_result['ic50_ci_upper']:.4g}"
+                )
+
+                if not fit_result["crosses_50_percent"]:
+                    st.warning(
+                        "Średnia żywotność nie obejmuje "
+                        "wartości po obu stronach 50%. "
+                        "Oszacowanie IC50 może być "
+                        "niewiarygodne."
+                    )
+
+                if not fit_result["ic50_in_range"]:
+                    st.warning(
+                        "Oszacowane IC50 znajduje się "
+                        "poza zakresem badanych stężeń. "
+                        "Nie należy raportować tej "
+                        "wartości jako wiarygodnego IC50."
+                    )
+
+                if (
+                    not np.isnan(
+                        fit_result["r_squared"]
+                    )
+                    and fit_result["r_squared"] < 0.8
+                ):
+                    st.warning(
+                        "Dopasowanie 4PL ma R² poniżej "
+                        "0,80. Sprawdź zakres stężeń "
+                        "i przebieg krzywej."
+                    )
+
+                four_pl_figure = (
+                    create_4pl_viability_figure(
+                        fit_result
+                    )
+                )
+
+                st.plotly_chart(
+                    four_pl_figure,
+                    width="stretch",
+                )
+
+                fit_parameters = pd.DataFrame(
+                    [
+                        {
+                            "parameter": "Bottom",
+                            "value": fit_result["bottom"],
+                        },
+                        {
+                            "parameter": "Top",
+                            "value": fit_result["top"],
+                        },
+                        {
+                            "parameter": "IC50",
+                            "value": fit_result["ic50"],
+                        },
+                        {
+                            "parameter": "Hill slope",
+                            "value": fit_result[
+                                "hill_slope"
+                            ],
+                        },
+                        {
+                            "parameter": "R squared",
+                            "value": fit_result[
+                                "r_squared"
+                            ],
+                        },
+                        {
+                            "parameter": "IC50 CI lower",
+                            "value": fit_result[
+                                "ic50_ci_lower"
+                            ],
+                        },
+                        {
+                            "parameter": "IC50 CI upper",
+                            "value": fit_result[
+                                "ic50_ci_upper"
+                            ],
+                        },
+                    ]
+                )
+
+                fit_csv = fit_parameters.to_csv(
+                    index=False
+                ).encode("utf-8")
+
+                st.download_button(
+                    label=(
+                        "Pobierz parametry 4PL jako CSV"
+                    ),
+                    data=fit_csv,
+                    file_name=(
+                        "viability_4pl_parameters.csv"
+                    ),
+                    mime="text/csv",
+                )
+
+            except (
+                RuntimeError,
+                ValueError,
+                TypeError,
+            ) as fit_error:
+                st.warning(
+                    "Nie udało się uzyskać "
+                    "wiarygodnego dopasowania 4PL."
+                )
+
+                st.info(str(fit_error))
         results_csv = viability_summary.to_csv(
             index=False
         ).encode("utf-8")
