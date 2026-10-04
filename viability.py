@@ -1,4 +1,5 @@
 import pandas as pd
+import pandas as pd
 import plotly.express as px
 import streamlit as st
 
@@ -6,9 +7,8 @@ import streamlit as st
 def extract_numeric_concentration(
     sample_ids: pd.Series,
 ) -> pd.Series:
-    load_experiments,
     """
-    Wyciąga liczbowe stężenie z identyfikatorów:
+    Wyciąga liczbowe stężenie z identyfikatorów takich jak:
     100
     CTRL 100
     Sample 100
