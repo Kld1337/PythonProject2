@@ -8,7 +8,7 @@ from database import (
     load_measurements,
     save_experiment,
 )
-
+from viability import show_viability_module
 initialize_database()
 
 
@@ -1381,6 +1381,7 @@ try:
         plate_map_tab,
         combined_tab,
         statistics_tab,
+        viability_tab,
         database_tab,
     ) = st.tabs(
         [
@@ -1390,6 +1391,7 @@ try:
             "Mapa płytki",
             "Połączone dane",
             "Statystyka",
+            "Żywotność",
             "Zapis eksperymentu",
         ]
     )
@@ -2179,7 +2181,68 @@ try:
             )
 
             st.info(str(statistics_error))
+    with viability_tab:
+        st.subheader("Moduł analizy żywotności")
 
+        try:
+            viability_detected_blocks = (
+                detect_plate_blocks(raw_data)
+            )
+
+            viability_supported_blocks = (
+                get_supported_measurement_blocks(
+                    viability_detected_blocks
+                )
+            )
+
+            if not viability_supported_blocks:
+                raise ValueError(
+                    "Nie znaleziono bloku pomiarowego "
+                    "Abs, RFU ani RLU."
+                )
+
+            selected_viability_block = st.selectbox(
+                "Wybierz blok pomiarowy",
+                options=viability_supported_blocks,
+                format_func=lambda block: str(
+                    block["label"]
+                ),
+                key="viability_block_selector",
+            )
+
+            viability_measurements = (
+                extract_measurement_plate(
+                    raw_data,
+                    selected_viability_block[
+                        "header_row"
+                    ],
+                )
+            )
+
+            viability_plate_map = (
+                extract_sample_plate_map(
+                    raw_data
+                )
+            )
+
+            viability_combined_data = (
+                combine_measurement_with_sample_map(
+                    viability_measurements,
+                    viability_plate_map,
+                )
+            )
+
+            show_viability_module(
+                viability_combined_data
+            )
+
+        except ValueError as viability_error:
+            st.warning(
+                "Nie udało się wykonać "
+                "analizy żywotności."
+            )
+
+            st.info(str(viability_error))
     with database_tab:
         st.subheader("Zapis eksperymentu w bazie")
 
