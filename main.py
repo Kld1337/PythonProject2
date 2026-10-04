@@ -845,7 +845,7 @@ def calculate_database_statistics(
     return summary.sort_values(
         by=["qc_status", "sample_id"]
     ).reset_index(drop=True)
-ddef prepare_concentration_chart_data(
+def prepare_concentration_chart_data(
     statistics: pd.DataFrame,
 ) -> pd.DataFrame:
     """
