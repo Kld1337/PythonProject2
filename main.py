@@ -845,35 +845,39 @@ def calculate_database_statistics(
     return summary.sort_values(
         by=["qc_status", "sample_id"]
     ).reset_index(drop=True)
-def prepare_concentration_chart_data(
+ddef prepare_concentration_chart_data(
     statistics: pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Przygotowuje statystyki do wykresu:
-    - usuwa blanki,
-    - usuwa kontrole CTRL i control,
-    - zachowuje tylko liczbowe stężenia,
-    - sortuje od najmniejszego stężenia.
+    Przygotowuje kopię danych wyłącznie do wykresu.
+
+    Blank i kontrole pozostają w oryginalnych danych
+    oraz mogą być używane do obliczeń, ale nie są
+    wyświetlane jako słupki.
+
+    Funkcja rozpoznaje także stężenia zapisane np.
+    jako '10', '10 ug', '10 µg/ml' lub 'Sample 10'.
     """
 
     chart_data = statistics.copy()
 
-    normalized_sample_id = (
+    chart_data["sample_id"] = (
         chart_data["sample_id"]
         .fillna("")
         .astype(str)
         .str.strip()
     )
 
-    excluded_mask = (
-        normalized_sample_id
+    normalized_sample_id = (
+        chart_data["sample_id"]
         .str.lower()
-        .str.startswith(
-            (
-                "blank",
-                "ctrl",
-                "control",
-            )
+    )
+
+    excluded_mask = (
+        normalized_sample_id.str.contains(
+            r"blank|ctrl|control|dmso",
+            regex=True,
+            na=False,
         )
     )
 
@@ -881,8 +885,17 @@ def prepare_concentration_chart_data(
         ~excluded_mask
     ].copy()
 
+    extracted_concentration = (
+        chart_data["sample_id"]
+        .str.replace(",", ".", regex=False)
+        .str.extract(
+            r"([-+]?\d*\.?\d+)",
+            expand=False,
+        )
+    )
+
     chart_data["concentration"] = pd.to_numeric(
-        chart_data["sample_id"],
+        extracted_concentration,
         errors="coerce",
     )
 
