@@ -14,6 +14,9 @@ from database import (
 )
 from viability import show_viability_module
 from hemolysis import show_hemolysis_sample_module
+from hemolysis_assay import (
+    show_hemolysis_assay_module,
+)
 initialize_database()
 
 
@@ -2303,7 +2306,7 @@ try:
                 )
             )
 
-            show_hemolysis_sample_module(
+            show_hemolysis_assay_module(
                 hemolysis_combined_data
             )
 
