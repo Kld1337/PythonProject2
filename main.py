@@ -1,6 +1,10 @@
+import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+
+from scipy.optimize import curve_fit
 
 from database import (
     initialize_database,
@@ -9,6 +13,7 @@ from database import (
     save_experiment,
 )
 from viability import show_viability_module
+from hemolysis import show_hemolysis_sample_module
 initialize_database()
 
 
@@ -1382,6 +1387,7 @@ try:
         combined_tab,
         statistics_tab,
         viability_tab,
+        hemolysis_tab,
         database_tab,
     ) = st.tabs(
         [
@@ -1392,6 +1398,7 @@ try:
             "Połączone dane",
             "Statystyka",
             "Żywotność",
+            "Hemoliza",
             "Zapis eksperymentu",
         ]
     )
@@ -2243,6 +2250,70 @@ try:
             )
 
             st.info(str(viability_error))
+    with hemolysis_tab:
+        st.subheader(
+            "Moduł analizy hemolizy"
+        )
+
+        try:
+            hemolysis_detected_blocks = (
+                detect_plate_blocks(raw_data)
+            )
+
+            hemolysis_supported_blocks = (
+                get_supported_measurement_blocks(
+                    hemolysis_detected_blocks
+                )
+            )
+
+            if not hemolysis_supported_blocks:
+                raise ValueError(
+                    "Nie znaleziono bloku pomiarowego "
+                    "Abs, RFU ani RLU."
+                )
+
+            selected_hemolysis_block = st.selectbox(
+                "Wybierz blok pomiarowy",
+                options=hemolysis_supported_blocks,
+                format_func=lambda block: str(
+                    block["label"]
+                ),
+                key="hemolysis_block_selector",
+            )
+
+            hemolysis_measurements = (
+                extract_measurement_plate(
+                    raw_data,
+                    selected_hemolysis_block[
+                        "header_row"
+                    ],
+                )
+            )
+
+            hemolysis_plate_map = (
+                extract_sample_plate_map(
+                    raw_data
+                )
+            )
+
+            hemolysis_combined_data = (
+                combine_measurement_with_sample_map(
+                    hemolysis_measurements,
+                    hemolysis_plate_map,
+                )
+            )
+
+            show_hemolysis_sample_module(
+                hemolysis_combined_data
+            )
+
+        except ValueError as hemolysis_error:
+            st.warning(
+                "Nie udało się wykonać "
+                "analizy hemolizy."
+            )
+
+            st.info(str(hemolysis_error))
     with database_tab:
         st.subheader("Zapis eksperymentu w bazie")
 
