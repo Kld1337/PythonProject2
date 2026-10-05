@@ -13,7 +13,9 @@ from database import (
     save_experiment,
 )
 from viability import show_viability_module
-from hemolysis import show_hemolysis_sample_module
+from hemolysis_astm import (
+show_blood_qualification_module,
+)
 from hemolysis_assay import (
     show_hemolysis_assay_module,
 )
