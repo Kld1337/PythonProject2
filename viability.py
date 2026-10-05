@@ -772,7 +772,7 @@ def create_viability_summary(
             "Brak wyników do utworzenia podsumowania."
         ]
 
-    summarybility_summary.copy()
+    viability_summary.copy()
 
     summary_data["concentration"] = pd.to_numeric(
         summary_data["concentration"],
