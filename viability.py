@@ -761,7 +761,7 @@ def create_viability_summary(
     viability_summary: pd.DataFrame,
     fit_result: dict | None = None,
     cv_limit: float = 15.0,
-) -> list[str]:
+) -> list:
     """
     Tworzy krótkie, automatyczne podsumowanie
     wyników analizy żywotności.
@@ -772,25 +772,21 @@ def create_viability_summary(
             "Brak wyników do utworzenia podsumowania."
         ]
 
-    viability_summary.copy()
+    summary_data = viability_summary.copy()
 
     summary_data["concentration"] = pd.to_numeric(
         summary_data["concentration"],
         errors="coerce",
     )
 
-    summary_data["mean_viability_pct"] = (
-        pd.to_numeric(
-            summary_data["mean_viability_pct"],
-            errors="coerce",
-        )
+    summary_data["mean_viability_pct"] = pd.to_numeric(
+        summary_data["mean_viability_pct"],
+        errors="coerce",
     )
 
-    summary_data["viability_cv_pct"] = (
-        pd.to_numeric(
-            summary_data["viability_cv_pct"],
-            errors="coerce",
-        )
+    summary_data["viability_cv_pct"] = pd.to_numeric(
+        summary_data["viability_cv_pct"],
+        errors="coerce",
     )
 
     summary_data = summary_data.dropna(
@@ -859,18 +855,19 @@ def create_viability_summary(
             "W badanym zakresie stężeń średnia "
             "żywotność nie spadła poniżej 50%."
         )
-
     else:
-        first_below_50 = below_50.sort_values(
-            "concentration"
-        ).iloc[0]
+        first_below_50 = (
+            below_50
+            .sort_values("concentration")
+            .iloc[0]
+        )
 
         conclusions.append(
             "Pierwsze badane stężenie, dla którego "
             "średnia żywotność była niższa niż 50%, "
-            f"wynosiło "
+            "wynosiło "
             f"{float(first_below_50['concentration']):g} "
-            f"i dawało "
+            "i dawało "
             f"{float(first_below_50['mean_viability_pct']):.2f}% "
             "żywotności."
         )
@@ -889,7 +886,6 @@ def create_viability_summary(
             f"przyjętego limitu CV = {cv_limit:.1f}% "
             "dla żywotności."
         )
-
     else:
         high_cv_concentrations = (
             summary_data.loc[
@@ -920,25 +916,24 @@ def create_viability_summary(
             f"{r_squared:.4f}."
         )
 
-        if (
+        fit_is_reliable = (
             fit_result["crosses_50_percent"]
             and fit_result["ic50_in_range"]
             and not np.isnan(r_squared)
             and r_squared >= 0.8
-        ):
+        )
+
+        if fit_is_reliable:
             conclusions.append(
                 "Dane obejmują wartości żywotności "
                 "po obu stronach 50%, IC50 znajduje się "
                 "w badanym zakresie, a dopasowanie "
                 "spełnia przyjęte kryterium R² ≥ 0,80."
             )
-
         else:
             warning_reasons = []
 
-            if not fit_result[
-                "crosses_50_percent"
-            ]:
+            if not fit_result["crosses_50_percent"]:
                 warning_reasons.append(
                     "brak wyników po obu stronach 50%"
                 )
