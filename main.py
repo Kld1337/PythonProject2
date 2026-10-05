@@ -2308,9 +2308,27 @@ try:
                 )
             )
 
-            show_hemolysis_assay_module(
-                hemolysis_combined_data
+            hemolysis_plate_type = st.radio(
+                "Wybierz rodzaj płytki hemolizy",
+                options=[
+                    "Kwalifikacja krwi: PFH i TBH",
+                    "Właściwy test hemolizy",
+                ],
+                key="hemolysis_plate_type_selector",
             )
+
+            if (
+                    hemolysis_plate_type
+                    == "Kwalifikacja krwi: PFH i TBH"
+            ):
+                show_blood_qualification_module(
+                    hemolysis_combined_data
+                )
+
+            else:
+                show_hemolysis_assay_module(
+                    hemolysis_combined_data
+                )
 
         except ValueError as hemolysis_error:
             st.warning(
