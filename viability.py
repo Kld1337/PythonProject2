@@ -757,6 +757,213 @@ def create_4pl_viability_figure(
     )
 
     return figure
+def create_viability_summary(
+    viability_summary: pd.DataFrame,
+    fit_result: dict | None = None,
+    cv_limit: float = 15.0,
+) -> list[str]:
+    """
+    Tworzy krótkie, automatyczne podsumowanie
+    wyników analizy żywotności.
+    """
+
+    if viability_summary.empty:
+        return [
+            "Brak wyników do utworzenia podsumowania."
+        ]
+
+    summarybility_summary.copy()
+
+    summary_data["concentration"] = pd.to_numeric(
+        summary_data["concentration"],
+        errors="coerce",
+    )
+
+    summary_data["mean_viability_pct"] = (
+        pd.to_numeric(
+            summary_data["mean_viability_pct"],
+            errors="coerce",
+        )
+    )
+
+    summary_data["viability_cv_pct"] = (
+        pd.to_numeric(
+            summary_data["viability_cv_pct"],
+            errors="coerce",
+        )
+    )
+
+    summary_data = summary_data.dropna(
+        subset=[
+            "concentration",
+            "mean_viability_pct",
+        ]
+    )
+
+    if summary_data.empty:
+        return [
+            "Brak liczbowych wyników do utworzenia "
+            "podsumowania."
+        ]
+
+    summary_data = summary_data.sort_values(
+        "concentration"
+    ).reset_index(drop=True)
+
+    conclusions = []
+
+    concentration_count = (
+        summary_data["concentration"].nunique()
+    )
+
+    minimum_concentration = float(
+        summary_data["concentration"].min()
+    )
+
+    maximum_concentration = float(
+        summary_data["concentration"].max()
+    )
+
+    conclusions.append(
+        "Analiza obejmowała "
+        f"{concentration_count} poziomów stężenia "
+        f"w zakresie od {minimum_concentration:g} "
+        f"do {maximum_concentration:g}."
+    )
+
+    minimum_row = summary_data.loc[
+        summary_data["mean_viability_pct"].idxmin()
+    ]
+
+    minimum_viability = float(
+        minimum_row["mean_viability_pct"]
+    )
+
+    minimum_viability_concentration = float(
+        minimum_row["concentration"]
+    )
+
+    conclusions.append(
+        "Najniższą średnią żywotność "
+        f"({minimum_viability:.2f}%) "
+        "zaobserwowano dla stężenia "
+        f"{minimum_viability_concentration:g}."
+    )
+
+    below_50 = summary_data.loc[
+        summary_data["mean_viability_pct"] < 50
+    ]
+
+    if below_50.empty:
+        conclusions.append(
+            "W badanym zakresie stężeń średnia "
+            "żywotność nie spadła poniżej 50%."
+        )
+
+    else:
+        first_below_50 = below_50.sort_values(
+            "concentration"
+        ).iloc[0]
+
+        conclusions.append(
+            "Pierwsze badane stężenie, dla którego "
+            "średnia żywotność była niższa niż 50%, "
+            f"wynosiło "
+            f"{float(first_below_50['concentration']):g} "
+            f"i dawało "
+            f"{float(first_below_50['mean_viability_pct']):.2f}% "
+            "żywotności."
+        )
+
+    high_cv_mask = (
+        summary_data["viability_cv_pct"]
+        .gt(cv_limit)
+        .fillna(False)
+    )
+
+    high_cv_count = int(high_cv_mask.sum())
+
+    if high_cv_count == 0:
+        conclusions.append(
+            "Żaden poziom stężenia nie przekroczył "
+            f"przyjętego limitu CV = {cv_limit:.1f}% "
+            "dla żywotności."
+        )
+
+    else:
+        high_cv_concentrations = (
+            summary_data.loc[
+                high_cv_mask,
+                "concentration",
+            ]
+            .sort_values()
+            .map(lambda value: f"{value:g}")
+            .tolist()
+        )
+
+        conclusions.append(
+            f"{high_cv_count} poziomów stężenia "
+            f"przekroczyło limit CV = {cv_limit:.1f}%: "
+            + ", ".join(high_cv_concentrations)
+            + ". Wyniki te wymagają sprawdzenia."
+        )
+
+    if fit_result is not None:
+        ic50 = float(fit_result["ic50"])
+        r_squared = float(
+            fit_result["r_squared"]
+        )
+
+        conclusions.append(
+            "Model 4PL oszacował IC50 na "
+            f"{ic50:.4g}, przy R² = "
+            f"{r_squared:.4f}."
+        )
+
+        if (
+            fit_result["crosses_50_percent"]
+            and fit_result["ic50_in_range"]
+            and not np.isnan(r_squared)
+            and r_squared >= 0.8
+        ):
+            conclusions.append(
+                "Dane obejmują wartości żywotności "
+                "po obu stronach 50%, IC50 znajduje się "
+                "w badanym zakresie, a dopasowanie "
+                "spełnia przyjęte kryterium R² ≥ 0,80."
+            )
+
+        else:
+            warning_reasons = []
+
+            if not fit_result[
+                "crosses_50_percent"
+            ]:
+                warning_reasons.append(
+                    "brak wyników po obu stronach 50%"
+                )
+
+            if not fit_result["ic50_in_range"]:
+                warning_reasons.append(
+                    "IC50 poza badanym zakresem"
+                )
+
+            if (
+                np.isnan(r_squared)
+                or r_squared < 0.8
+            ):
+                warning_reasons.append(
+                    "R² poniżej 0,80"
+                )
+
+            conclusions.append(
+                "Oszacowanie IC50 należy interpretować "
+                "ostrożnie: "
+                + ", ".join(warning_reasons)
+                + "."
+            )
+
+    return conclusions
 
 def show_viability_module(
         combined_data: pd.DataFrame,
@@ -908,9 +1115,9 @@ def show_viability_module(
         st.subheader(
             "Dopasowanie 4PL i oszacowanie IC50"
         )
-
+        fit_result_for_summary = None
         enable_4pl = st.checkbox(
-            "Wykonaj dopasowanie 4PL",
+           "Wykonaj dopasowanie 4PL",
             value=True,
             key="enable_viability_4pl",
         )
@@ -920,7 +1127,7 @@ def show_viability_module(
                 fit_result = fit_viability_4pl(
                     viability_summary
                 )
-
+                fit_result_for_summary = fit_result
                 (
                     fit_column_1,
                     fit_column_2,
@@ -1066,6 +1273,40 @@ def show_viability_module(
                 )
 
                 st.info(str(fit_error))
+        st.divider()
+
+        st.subheader(
+            "Podsumowanie i krótkie wnioski"
+        )
+
+        summary_cv_limit = st.number_input(
+            "Limit CV używany w podsumowaniu [%]",
+            min_value=0.0,
+            max_value=100.0,
+            value=15.0,
+            step=1.0,
+            key="viability_summary_cv_limit",
+        )
+
+        viability_conclusions = (
+            create_viability_summary(
+                viability_summary,
+                fit_result=fit_result_for_summary,
+                cv_limit=summary_cv_limit,
+            )
+        )
+
+        for conclusion in viability_conclusions:
+            st.markdown(
+                f"- {conclusion}"
+            )
+
+        st.caption(
+            "Podsumowanie ma charakter opisowy. "
+            "Interpretację biologiczną i kryteria "
+            "akceptacji należy zweryfikować zgodnie "
+            "z protokołem eksperymentu."
+        )
         results_csv = viability_summary.to_csv(
             index=False
         ).encode("utf-8")
