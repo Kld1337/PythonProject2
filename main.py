@@ -1009,7 +1009,7 @@ def show_database_browser() -> None:
         [
             "Podsumowanie",
             "Pomiary",
-            "Analiza hemolizy",
+            "Analiza testu",
             "Porównanie",
             "Statystyki ogólne",
             "Wykresy techniczne",
@@ -1093,50 +1093,152 @@ def show_database_browser() -> None:
             mime="text/csv",
         )
     with assay_analysis_tab:
-        st.subheader("Analiza eksperymentu hemolizy")
-
-        stored_sample_ids = set(
-            selected_measurements["sample_id"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.casefold()
-            .tolist()
+        st.subheader(
+            "Analiza specyficzna dla rodzaju testu"
         )
 
-        has_pfh = "pfh" in stored_sample_ids
-        has_tbh = "tbh" in stored_sample_ids
-        has_tbhd = "tbhd" in stored_sample_ids
+        selected_assay_type = str(
+            selected_experiment.get(
+                "assay_type",
+                "",
+            )
+        ).strip()
 
-        if has_pfh and has_tbh and not has_tbhd:
-            st.info(
-                "Automatycznie rozpoznano płytkę: " "kwalifikacja krwi PFH/TBH."
+        selected_measurement_type = str(
+            selected_experiment.get(
+                "measurement_type",
+                "",
+            )
+        ).strip()
+
+        st.info(
+            f"Rodzaj analizy: "
+            f"{selected_assay_type} | "
+            f"Typ pomiaru: "
+            f"{selected_measurement_type}"
+        )
+
+        if (
+            selected_assay_type.casefold()
+            == "żywotność".casefold()
+        ):
+            show_viability_module(
+                selected_measurements
+            )
+
+        elif (
+            selected_assay_type.casefold()
+            == "hemoliza".casefold()
+        ):
+            stored_sample_ids = set(
+                selected_measurements[
+                    "sample_id"
+                ]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.casefold()
+                .tolist()
+            )
+
+            has_pfh = (
+                "pfh" in stored_sample_ids
+            )
+
+            has_tbh = (
+                "tbh" in stored_sample_ids
+            )
+
+            has_tbhd = (
+                "tbhd" in stored_sample_ids
+            )
+
+            if (
+                has_pfh
+                and has_tbh
+                and not has_tbhd
+            ):
+                st.info(
+                    "Automatycznie rozpoznano "
+                    "płytkę kwalifikacji krwi "
+                    "PFH/TBH."
                 )
-            show_blood_qualification_module(
-                selected_measurements
-            )
 
-        elif has_tbhd:
+                show_blood_qualification_module(
+                    selected_measurements
+                )
+
+            elif has_tbhd:
+                st.info(
+                    "Automatycznie rozpoznano "
+                    "właściwy test hemolizy."
+                )
+
+                show_hemolysis_assay_module(
+                    selected_measurements
+                )
+
+            else:
+                st.warning(
+                    "Nie udało się automatycznie "
+                    "rozpoznać rodzaju płytki "
+                    "hemolizy. Oczekiwano PFH "
+                    "i TBH albo TBHd."
+                )
+
+        elif (
+            selected_assay_type.casefold()
+            == (
+                "Fluorescencja - GFP mRNA"
+            ).casefold()
+        ):
             st.info(
-                "Automatycznie rozpoznano płytkę: "
-                "właściwy test hemolizy."
+                "Moduł analizy GFP zostanie "
+                "dodany w kolejnym etapie."
             )
 
-            show_hemolysis_assay_module(
-                selected_measurements
+        elif (
+            selected_assay_type.casefold()
+            == (
+                "Luminescencja - Fluc mRNA"
+            ).casefold()
+        ):
+            st.info(
+                "Moduł analizy Fluc zostanie "
+                "dodany w kolejnym etapie."
             )
 
         else:
             st.warning(
-                "Nie udało się automatycznie "
-                "rozpoznać rodzaju płytki hemolizy. "
-                "Oczekiwano PFH i TBH albo TBHd."
+                "Dla rodzaju analizy "
+                f"'{selected_assay_type}' "
+                "nie ma jeszcze dedykowanego "
+                "modułu."
             )
     with comparison_tab:
-        show_hemolysis_comparison(
-            saved_experiments
-        )
+        if (
+                selected_assay_type.casefold()
+                == "hemoliza".casefold()
+        ):
+            show_hemolysis_comparison(
+                saved_experiments
+            )
 
+        elif (
+                selected_assay_type.casefold()
+                == "żywotność".casefold()
+        ):
+            st.info(
+                "Porównanie eksperymentów "
+                "żywotności zostanie dodane "
+                "w kolejnym etapie."
+            )
+
+        else:
+            st.info(
+                "Dla wybranego rodzaju testu "
+                "nie ma jeszcze modułu porównania."
+            )
     with statistics_tab:
         st.subheader(
             "Statystyki według identyfikatora próbki"
