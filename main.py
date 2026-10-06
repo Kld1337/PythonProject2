@@ -2323,9 +2323,10 @@ try:
         )
 
         st.info(
-            "Obecna wersja importera obsługuje dane "
-            "absorbancji. Obsługę luminescencji i "
-            "fluorescencji dodamy jako osobne etapy."
+            "Formularz obsługuje absorbancję, "
+            "fluorescencję i luminescencję. "
+            "Przed zapisem sprawdź blok pomiarowy "
+            "oraz mapę próbek."
         )
         database_detected_blocks = detect_plate_blocks(
             raw_data
@@ -2429,9 +2430,27 @@ try:
 
             else:
                 try:
-                    plate_results_to_save = (
-                        extract_absorbance_plate(
-                            raw_data
+                    if not database_supported_blocks:
+                        raise ValueError(
+                            "Nie znaleziono obsługiwanego "
+                            "bloku pomiarowego Abs, RFU "
+                            "ani RLU."
+                        )
+
+                    measurement_config_to_save = (
+                        get_measurement_config(
+                            selected_database_block[
+                                "label"
+                            ]
+                        )
+                    )
+
+                    measurement_results_to_save = (
+                        extract_measurement_plate(
+                            raw_data,
+                            selected_database_block[
+                                "header_row"
+                            ],
                         )
                     )
 
@@ -2442,10 +2461,40 @@ try:
                     )
 
                     combined_data_to_save = (
-                        combine_results_with_sample_map(
-                            plate_results_to_save,
+                        combine_measurement_with_sample_map(
+                            measurement_results_to_save,
                             plate_map_to_save,
                         )
+                    )
+
+                    assigned_count = (
+                        combined_data_to_save[
+                            "sample_id"
+                        ]
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                        .ne("")
+                        .sum()
+                    )
+
+                    if assigned_count == 0:
+                        raise ValueError(
+                            "Nie zapisano eksperymentu: "
+                            "wszystkie dołki mają pusty "
+                            "identyfikator próbki."
+                        )
+
+                    measurement_type_to_save = (
+                        measurement_config_to_save[
+                            "measurement_type"
+                        ]
+                    )
+
+                    measurement_unit_to_save = (
+                        measurement_config_to_save[
+                            "measurement_unit"
+                        ]
                     )
 
                     metadata_to_save = {
@@ -2459,10 +2508,8 @@ try:
                         "experiment_date": str(
                             experiment_date
                         ),
-                        "measurement_type": (
-                            "Absorbancja"
-                        ),
-                        "measurement_unit": "AU",
+                        "measurement_type": (measurement_type_to_save),
+                        "measurement_unit": (measurement_unit_to_save),
                         "source_file": (
                             uploaded_file.name
                         ),
