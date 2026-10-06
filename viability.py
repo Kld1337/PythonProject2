@@ -736,23 +736,93 @@ def create_4pl_viability_figure(
     )
 
     if fit_result["ic50_in_range"]:
-        figure.add_vline(
-            x=fit_result["ic50"],
-            line_dash="dash",
-            line_color="red",
-            annotation_text=(
-                f"IC50 = "
-                f"{fit_result['ic50']:.4g}"
-            ),
+        ic50_value = fit_result["ic50"]
+
+        visible_y_values = np.concatenate(
+            [
+                fit_result["curve_y"],
+                fit_data[
+                    "mean_viability_pct"
+                ].to_numpy(dtype=float),
+            ]
         )
+
+        ic50_line_min = float(
+            np.nanmin(visible_y_values)
+        )
+
+        ic50_line_max = float(
+            np.nanmax(visible_y_values)
+        )
+
+        figure.add_trace(
+            go.Scatter(
+                x=[
+                    ic50_value,
+                    ic50_value,
+                ],
+                y=[
+                    ic50_line_min,
+                    ic50_line_max,
+                ],
+                mode="lines",
+                name=(
+                    f"IC50 = {ic50_value:.4g}"
+                ),
+                line={
+                    "color": "red",
+                    "dash": "dash",
+                    "width": 2,
+                },
+                hovertemplate=(
+                    f"IC50 = {ic50_value:.4g}"
+                    "<extra></extra>"
+                ),
+            )
+        )
+    minimum_concentration = fit_result[
+        "minimum_concentration"
+    ]
+
+    maximum_concentration = fit_result[
+        "maximum_concentration"
+    ]
+
+    x_axis_minimum = np.log10(
+        minimum_concentration * 0.8
+    )
+
+    x_axis_maximum = np.log10(
+        maximum_concentration * 1.2
+    )
 
     figure.update_layout(
         title="Krzywa dawka–odpowiedź 4PL",
-        xaxis_title="Stężenie",
-        yaxis_title="Żywotność [%]",
-        xaxis_type="log",
+        xaxis={
+            "title": "Stężenie",
+            "type": "log",
+            "range": [
+                x_axis_minimum,
+                x_axis_maximum,
+            ],
+            "dtick": 1,
+        },
         yaxis={
+            "title": "Żywotność [%]",
             "rangemode": "tozero",
+        },
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0,
+        },
+        margin={
+            "l": 70,
+            "r": 40,
+            "t": 100,
+            "b": 70,
         },
     )
 
