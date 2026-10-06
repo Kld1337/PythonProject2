@@ -998,16 +998,19 @@ def show_database_browser() -> None:
     (
         overview_tab,
         measurements_tab,
+        assay_analysis_tab,
         statistics_tab,
         charts_tab,
     ) = st.tabs(
         [
             "Podsumowanie",
             "Pomiary",
-            "Statystyki",
-            "Wykresy",
+            "Analiza hemolizy",
+            "Statystyki ogólne",
+            "Wykresy techniczne",
         ]
     )
+
 
     with overview_tab:
         st.subheader("Metadane eksperymentu")
@@ -1084,6 +1087,47 @@ def show_database_browser() -> None:
             ),
             mime="text/csv",
         )
+    with assay_analysis_tab:
+        st.subheader("Analiza eksperymentu hemolizy")
+
+        stored_sample_ids = set(
+            selected_measurements["sample_id"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.casefold()
+            .tolist()
+        )
+
+        has_pfh = "pfh" in stored_sample_ids
+        has_tbh = "tbh" in stored_sample_ids
+        has_tbhd = "tbhd" in stored_sample_ids
+
+        if has_pfh and has_tbh and not has_tbhd:
+            st.info(
+                "Automatycznie rozpoznano płytkę: " "kwalifikacja krwi PFH/TBH."
+                )
+            show_blood_qualification_module(
+                selected_measurements
+            )
+
+        elif has_tbhd:
+            st.info(
+                "Automatycznie rozpoznano płytkę: "
+                "właściwy test hemolizy."
+            )
+
+            show_hemolysis_assay_module(
+                selected_measurements
+            )
+
+        else:
+            st.warning(
+                "Nie udało się automatycznie "
+                "rozpoznać rodzaju płytki hemolizy. "
+                "Oczekiwano PFH i TBH albo TBHd."
+            )
+    
 
     with statistics_tab:
         st.subheader(
