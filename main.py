@@ -19,6 +19,9 @@ show_blood_qualification_module,
 from hemolysis_assay import (
     show_hemolysis_assay_module,
 )
+from hemolysis_comparison import (
+    show_hemolysis_comparison,
+)
 initialize_database()
 
 
@@ -999,6 +1002,7 @@ def show_database_browser() -> None:
         overview_tab,
         measurements_tab,
         assay_analysis_tab,
+        comparison_tab,
         statistics_tab,
         charts_tab,
     ) = st.tabs(
@@ -1006,6 +1010,7 @@ def show_database_browser() -> None:
             "Podsumowanie",
             "Pomiary",
             "Analiza hemolizy",
+            "Porównanie",
             "Statystyki ogólne",
             "Wykresy techniczne",
         ]
@@ -1127,7 +1132,10 @@ def show_database_browser() -> None:
                 "rozpoznać rodzaju płytki hemolizy. "
                 "Oczekiwano PFH i TBH albo TBHd."
             )
-    
+    with comparison_tab:
+        show_hemolysis_comparison(
+            saved_experiments
+        )
 
     with statistics_tab:
         st.subheader(
