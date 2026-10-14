@@ -13,6 +13,7 @@ from database import (
     save_experiment,
 )
 from viability import show_viability_module
+from bca import show_bca_module
 from viability_comparison import (
     show_viability_comparison,
 )
@@ -1573,6 +1574,7 @@ try:
         statistics_tab,
         viability_tab,
         hemolysis_tab,
+        bca_tab,
         database_tab,
     ) = st.tabs(
         [
@@ -1583,6 +1585,7 @@ try:
             "Statystyka",
             "Żywotność",
             "Hemoliza",
+            "BCA",
             "Zapis",
         ]
     )
@@ -2443,6 +2446,82 @@ try:
             )
 
             st.info(str(hemolysis_error))
+    with bca_tab:
+        st.subheader(
+            "Moduł oznaczania stężenia białka BCA"
+        )
+
+        try:
+            bca_detected_blocks = (
+                detect_plate_blocks(raw_data)
+            )
+
+            bca_supported_blocks = (
+                get_supported_measurement_blocks(
+                    bca_detected_blocks
+                )
+            )
+
+            bca_absorbance_blocks = [
+                block
+                for block in bca_supported_blocks
+                if (
+                    str(block["label"])
+                    .strip()
+                    .upper()
+                    == "ABS"
+                )
+            ]
+
+            if not bca_absorbance_blocks:
+                raise ValueError(
+                    "Nie znaleziono bloku Abs "
+                    "w wybranym arkuszu."
+                )
+
+            selected_bca_block = (
+                bca_absorbance_blocks[0]
+            )
+
+            st.caption(
+                "Do analizy BCA automatycznie "
+                "wykorzystano blok Abs."
+            )
+
+            bca_measurements = (
+                extract_measurement_plate(
+                    raw_data,
+                    selected_bca_block[
+                        "header_row"
+                    ],
+                )
+            )
+
+            bca_plate_map = (
+                extract_sample_plate_map(
+                    raw_data
+                )
+            )
+
+            bca_combined_data = (
+                combine_measurement_with_sample_map(
+                    bca_measurements,
+                    bca_plate_map,
+                )
+            )
+
+            show_bca_module(
+                bca_combined_data
+            )
+
+        except ValueError as bca_error:
+            st.warning(
+                "Nie udało się wykonać "
+                "analizy BCA."
+            )
+
+            st.info(str(bca_error))
+            
     with database_tab:
         st.subheader("Zapis eksperymentu w bazie")
 
