@@ -13,6 +13,9 @@ from database import (
     save_experiment,
 )
 from viability import show_viability_module
+from viability_comparison import (
+    show_viability_comparison,
+)
 from hemolysis_astm import (
 show_blood_qualification_module,
 )
@@ -1254,10 +1257,8 @@ def show_database_browser() -> None:
                 selected_assay_type.casefold()
                 == "żywotność".casefold()
         ):
-            st.info(
-                "Porównanie eksperymentów "
-                "żywotności zostanie dodane "
-                "w kolejnym etapie."
+            show_viability_comparison(
+                saved_experiments
             )
 
         else:
