@@ -2479,13 +2479,19 @@ try:
                     "w wybranym arkuszu."
                 )
 
-            selected_bca_block = (
-                bca_absorbance_blocks[0]
+            selected_bca_block = st.selectbox(
+                "Wybierz blok absorbancji dla BCA",
+                options=bca_absorbance_blocks,
+                format_func=lambda block: (
+                    f"{block['label']} "
+                    f"(wiersz {block['header_row']})"
+                ),
+                key="bca_absorbance_block_selector",
             )
 
             st.caption(
-                "Do analizy BCA automatycznie "
-                "wykorzystano blok Abs."
+                "Sprawdź, czy wybrany blok zawiera "
+                "odczyt A562 właściwy dla analizy BCA."
             )
 
             bca_measurements = (
@@ -2509,6 +2515,22 @@ try:
                     bca_plate_map,
                 )
             )
+            st.subheader(
+                "Kontrola połączenia mapy z wynikami"
+            )
+
+            st.dataframe(
+                bca_combined_data[
+                    [
+                        "well",
+                        "sample_id",
+                        "raw_value",
+                        "sample_status",
+                    ]
+                ],
+                width="stretch",
+                hide_index=True,
+            )
 
             show_bca_module(
                 bca_combined_data
@@ -2521,7 +2543,7 @@ try:
             )
 
             st.info(str(bca_error))
-            
+
     with database_tab:
         st.subheader("Zapis eksperymentu w bazie")
 
