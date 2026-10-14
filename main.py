@@ -996,7 +996,33 @@ def show_database_browser() -> None:
     selected_metadata = project_experiments.loc[
         project_experiments["experiment_id"]
         == selected_experiment_id
-    ].copy()
+        ].copy()
+
+    if selected_measurements.empty:
+        st.error(
+            "Wybrany eksperyment nie zawiera "
+            "żadnych zapisanych pomiarów."
+        )
+
+        st.info(
+            "Metadane eksperymentu istnieją w bazie, "
+            "ale tabela measurements nie zawiera "
+            "rekordów dla identyfikatora "
+            f"'{selected_experiment_id}'. "
+            "Płytkę należy zapisać ponownie."
+        )
+
+        st.subheader(
+            "Metadane niekompletnego eksperymentu"
+        )
+
+        st.dataframe(
+            selected_metadata,
+            width="stretch",
+            hide_index=True,
+        )
+
+        return
 
     (
         overview_tab,
@@ -2623,17 +2649,136 @@ try:
                         "notes": notes.strip(),
                     }
 
+                    required_save_columns = {
+                        "well",
+                        "plate_row",
+                        "plate_column",
+                        "raw_value",
+                        "sample_id",
+                        "sample_status",
+                    }
+
+                    missing_save_columns = (
+                            required_save_columns
+                            - set(
+                        combined_data_to_save.columns
+                    )
+                    )
+
+                    if missing_save_columns:
+                        raise ValueError(
+                            "Nie można zapisać eksperymentu. "
+                            "Brakuje wymaganych kolumn: "
+                            + ", ".join(
+                                sorted(
+                                    missing_save_columns
+                                )
+                            )
+                            + "."
+                        )
+
+                    measurement_count_to_save = len(
+                        combined_data_to_save
+                    )
+
+                    if measurement_count_to_save != 96:
+                        raise ValueError(
+                            "Nie można zapisać eksperymentu. "
+                            "Oczekiwano 96 pomiarów, ale "
+                            f"otrzymano "
+                            f"{measurement_count_to_save}."
+                        )
+
+                    assigned_count_to_save = (
+                        combined_data_to_save[
+                            "sample_id"
+                        ]
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                        .ne("")
+                        .sum()
+                    )
+
+                    if assigned_count_to_save == 0:
+                        raise ValueError(
+                            "Nie można zapisać eksperymentu: "
+                            "żaden dołek nie ma przypisanego "
+                            "identyfikatora sample_id. "
+                            "Sprawdź zakładkę Mapa."
+                        )
+
+                    st.write(
+                        "**Kontrola danych przed zapisem:**"
+                    )
+
+                    st.write(
+                        f"Liczba pomiarów: "
+                        f"**{measurement_count_to_save}** | "
+                        f"Opisane dołki: "
+                        f"**{assigned_count_to_save}**"
+                    )
+
                     save_experiment(
                         metadata_to_save,
                         combined_data_to_save,
                     )
 
-                    st.success(
-                        "Eksperyment został zapisany. "
-                        "Dodano 1 rekord eksperymentu "
-                        "i 96 pomiarów."
+                    saved_measurements_check = (
+                        load_measurements(
+                            experiment_id.strip()
+                        )
                     )
 
+                    saved_measurement_count = len(
+                        saved_measurements_check
+                    )
+
+                    if saved_measurement_count != 96:
+                        raise RuntimeError(
+                            "Zapis eksperymentu nie został "
+                            "ukończony prawidłowo. "
+                            "W bazie znaleziono "
+                            f"{saved_measurement_count} "
+                            "pomiarów zamiast 96."
+                        )
+
+                    if (
+                            "sample_id"
+                            not in saved_measurements_check.columns
+                    ):
+                        raise RuntimeError(
+                            "Pomiary zostały zapisane, ale "
+                            "odczytane dane nie zawierają "
+                            "kolumny sample_id."
+                        )
+
+                    saved_assigned_count = (
+                        saved_measurements_check[
+                            "sample_id"
+                        ]
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                        .ne("")
+                        .sum()
+                    )
+
+                    if saved_assigned_count == 0:
+                        raise RuntimeError(
+                            "Pomiary zostały zapisane, ale "
+                            "wszystkie wartości sample_id "
+                            "w bazie są puste."
+                        )
+
+                    st.success(
+                        "Eksperyment został zapisany "
+                        "i zweryfikowany. "
+                        f"Dodano {saved_measurement_count} "
+                        "pomiarów, w tym "
+                        f"{saved_assigned_count} opisanych "
+                        "dołków."
+                    )
                 except ValueError as save_error:
                     st.error(str(save_error))
 

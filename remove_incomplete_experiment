@@ -1,0 +1,55 @@
+
+import sqlite3
+
+
+DATABASE_PATH = "bioassay_data.db"
+EXPERIMENT_ID = "S34_24"
+
+
+with sqlite3.connect(DATABASE_PATH) as connection:
+    experiment_count = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM experiments
+        WHERE experiment_id = ?
+        """,
+        (EXPERIMENT_ID,),
+    ).fetchone()[0]
+
+    measurement_count = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM measurements
+        WHERE experiment_id = ?
+        """,
+        (EXPERIMENT_ID,),
+    ).fetchone()[0]
+
+    print(
+        f"Przed usunięciem: "
+        f"eksperymenty={experiment_count}, "
+        f"pomiary={measurement_count}"
+    )
+
+    connection.execute(
+        """
+        DELETE FROM measurements
+        WHERE experiment_id = ?
+        """,
+        (EXPERIMENT_ID,),
+    )
+
+    connection.execute(
+        """
+        DELETE FROM experiments
+        WHERE experiment_id = ?
+        """,
+        (EXPERIMENT_ID,),
+    )
+
+    connection.commit()
+
+    print(
+        f"Usunięto eksperyment: "
+        f"{EXPERIMENT_ID}"
+    )

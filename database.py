@@ -83,12 +83,55 @@ def save_experiment(
     metadata: dict,
     combined_data: pd.DataFrame,
 ) -> None:
+    """
+    Zapisuje metadane eksperymentu oraz wszystkie
+    pomiary płytki w jednej transakcji SQLite.
+    """
+
     experiment_id = metadata["experiment_id"]
 
     if experiment_exists(experiment_id):
         raise ValueError(
             "Eksperyment o identyfikatorze "
             f"'{experiment_id}' już istnieje w bazie."
+        )
+
+    if len(combined_data) != 96:
+        raise ValueError(
+            "Oczekiwano 96 pomiarów do zapisania, "
+            f"ale otrzymano {len(combined_data)}."
+        )
+
+    required_columns = {
+        "well",
+        "plate_row",
+        "plate_column",
+        "sample_id",
+        "sample_status",
+    }
+
+    missing_columns = (
+        required_columns
+        - set(combined_data.columns)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            "Dane nie zawierają wymaganych kolumn: "
+            + ", ".join(sorted(missing_columns))
+            + "."
+        )
+
+    if "raw_value" in combined_data.columns:
+        value_column = "raw_value"
+
+    elif "raw_absorbance" in combined_data.columns:
+        value_column = "raw_absorbance"
+
+    else:
+        raise ValueError(
+            "Dane nie zawierają kolumny raw_value "
+            "ani raw_absorbance."
         )
 
     experiment_values = (
@@ -105,43 +148,37 @@ def save_experiment(
         metadata.get("notes", ""),
     )
 
-    if "raw_value" in combined_data.columns:
-        value_column = "raw_value"
-
-    elif "raw_absorbance" in combined_data.columns:
-        value_column = "raw_absorbance"
-
-    else:
-        raise ValueError(
-            "Dane nie zawierają kolumny raw_value "
-            "ani raw_absorbance."
-        )
-
     measurement_values = []
 
     for row in combined_data.to_dict(
-            orient="records"
+        orient="records"
     ):
         raw_value = row.get(value_column)
 
-    measurement_values.append(
-        (
-            experiment_id,
-            row["well"],
-            row["plate_row"],
-            int(row["plate_column"]),
-            row.get("sample_id", ""),
+        measurement_values.append(
             (
-                None
-                if pd.isna(raw_value)
-                else float(raw_value)
-            ),
-            row.get(
-                "sample_status",
-                "Unassigned",
-            ),
+                experiment_id,
+                row["well"],
+                row["plate_row"],
+                int(row["plate_column"]),
+                row.get("sample_id", ""),
+                (
+                    None
+                    if pd.isna(raw_value)
+                    else float(raw_value)
+                ),
+                row.get(
+                    "sample_status",
+                    "Unassigned",
+                ),
+            )
         )
-    )
+
+    if len(measurement_values) != 96:
+        raise RuntimeError(
+            "Podczas przygotowania danych do zapisu "
+            "nie utworzono 96 rekordów pomiarowych."
+        )
 
     with get_connection() as connection:
         connection.execute(
@@ -179,6 +216,22 @@ def save_experiment(
             """,
             measurement_values,
         )
+
+        saved_count = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM measurements
+            WHERE experiment_id = ?
+            """,
+            (experiment_id,),
+        ).fetchone()[0]
+
+        if saved_count != 96:
+            raise RuntimeError(
+                "Nie udało się zapisać pełnej płytki. "
+                f"W bazie znaleziono {saved_count} "
+                "pomiarów zamiast 96."
+            )
 
 
 def load_experiments() -> pd.DataFrame:
