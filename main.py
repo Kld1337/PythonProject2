@@ -1197,11 +1197,13 @@ def show_database_browser() -> None:
 
                     st.rerun()
 
+
                 except (
                     ValueError,
                     RuntimeError,
                 ) as delete_error:
                     st.error(
+                        str(delete_error)
                     )
     with measurements_tab:
         st.subheader("Pomiary wybranego eksperymentu")
@@ -1320,7 +1322,13 @@ def show_database_browser() -> None:
                     "hemolizy. Oczekiwano PFH "
                     "i TBH albo TBHd."
                 )
-
+        elif (
+            selected_assay_type.casefold()
+            == "bca".casefold()
+        ):
+            show_bca_module(
+                selected_measurements
+            )
         elif (
             selected_assay_type.casefold()
             == (
@@ -1365,6 +1373,15 @@ def show_database_browser() -> None:
         ):
             show_viability_comparison(
                 saved_experiments
+            )
+
+        elif (
+                selected_assay_type.casefold()
+                == "bca".casefold()
+        ):
+            st.info(
+                "Porównanie eksperymentów BCA "
+                "nie zostało jeszcze dodane."
             )
 
         else:
@@ -2702,6 +2719,7 @@ try:
                 options=[
                     "Hemoliza",
                     "Żywotność",
+                    "BCA",
                     "Stężenie glukozy",
                     "Luminescencja - Fluc mRNA",
                     "Fluorescencja - GFP mRNA",
