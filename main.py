@@ -7,11 +7,13 @@ import streamlit as st
 from scipy.optimize import curve_fit
 
 from database import (
+    delete_experiment,
     initialize_database,
     load_experiments,
     load_measurements,
     save_experiment,
 )
+
 from viability import show_viability_module
 from bca import show_bca_module
 from viability_comparison import (
@@ -1097,7 +1099,110 @@ def show_database_browser() -> None:
             "Unikalne identyfikatory",
             unique_samples,
         )
+        st.divider()
 
+        with st.expander(
+            "Usuń eksperyment z bazy",
+            expanded=False,
+        ):
+            st.warning(
+                "Usunięcie eksperymentu jest "
+                "nieodwracalne. Usunięte zostaną "
+                "metadane oraz wszystkie powiązane "
+                "pomiary."
+            )
+
+            st.write(
+                "**Eksperyment przeznaczony "
+                "do usunięcia:**"
+            )
+
+            st.code(
+                selected_experiment_id
+            )
+
+            st.write(
+                f"Liczba powiązanych pomiarów: "
+                f"**{len(selected_measurements)}**"
+            )
+
+            delete_confirmation = st.checkbox(
+                (
+                    "Potwierdzam, że chcę usunąć "
+                    f"eksperyment "
+                    f"{selected_experiment_id}"
+                ),
+                key=(
+                    "delete_confirmation_"
+                    f"{selected_experiment_id}"
+                ),
+            )
+
+            typed_experiment_id = st.text_input(
+                (
+                    "Wpisz identyfikator eksperymentu "
+                    "w celu potwierdzenia"
+                ),
+                key=(
+                    "delete_experiment_text_"
+                    f"{selected_experiment_id}"
+                ),
+            )
+
+            identifier_matches = (
+                typed_experiment_id.strip()
+                == selected_experiment_id
+            )
+
+            delete_button_disabled = not (
+                delete_confirmation
+                and identifier_matches
+            )
+
+            if not identifier_matches:
+                if typed_experiment_id.strip():
+                    st.info(
+                        "Wpisany identyfikator nie jest "
+                        "zgodny z wybranym "
+                        "eksperymentem."
+                    )
+
+            delete_submitted = st.button(
+                "Usuń eksperyment",
+                type="primary",
+                disabled=(
+                    delete_button_disabled
+                ),
+                key=(
+                    "delete_experiment_button_"
+                    f"{selected_experiment_id}"
+                ),
+            )
+
+            if delete_submitted:
+                try:
+                    delete_result = (
+                        delete_experiment(
+                            selected_experiment_id
+                        )
+                    )
+
+                    st.success(
+                        "Usunięto eksperyment "
+                        f"{delete_result['experiment_id']} "
+                        "oraz "
+                        f"{delete_result['deleted_measurements']} "
+                        "powiązanych pomiarów."
+                    )
+
+                    st.rerun()
+
+                except (
+                    ValueError,
+                    RuntimeError,
+                ) as delete_error:
+                    st.error(
+                    )
     with measurements_tab:
         st.subheader("Pomiary wybranego eksperymentu")
 

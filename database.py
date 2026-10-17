@@ -260,3 +260,97 @@ def load_measurements(
             connection,
             params=(experiment_id,),
         )
+
+def delete_experiment(
+    experiment_id: str,
+) -> dict:
+    """
+    Usuwa eksperyment oraz wszystkie powiązane
+    pomiary z bazy SQLite.
+
+    Zwraca liczbę usuniętych rekordów.
+    """
+
+    experiment_id = str(
+        experiment_id
+    ).strip()
+
+    if not experiment_id:
+        raise ValueError(
+            "Nie podano identyfikatora "
+            "eksperymentu."
+        )
+
+    with get_connection() as connection:
+        experiment_record = connection.execute(
+            """
+            SELECT experiment_id
+            FROM experiments
+            WHERE experiment_id = ?
+            """,
+            (experiment_id,),
+        ).fetchone()
+
+        if experiment_record is None:
+            raise ValueError(
+                "Nie znaleziono eksperymentu "
+                f"'{experiment_id}'."
+            )
+
+        measurement_count = (
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM measurements
+                WHERE experiment_id = ?
+                """,
+                (experiment_id,),
+            ).fetchone()[0]
+        )
+
+        connection.execute(
+            """
+            DELETE FROM experiments
+            WHERE experiment_id = ?
+            """,
+            (experiment_id,),
+        )
+
+        remaining_experiment_count = (
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM experiments
+                WHERE experiment_id = ?
+                """,
+                (experiment_id,),
+            ).fetchone()[0]
+        )
+
+        remaining_measurement_count = (
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM measurements
+                WHERE experiment_id = ?
+                """,
+                (experiment_id,),
+            ).fetchone()[0]
+        )
+
+        if (
+            remaining_experiment_count != 0
+            or remaining_measurement_count != 0
+        ):
+            raise RuntimeError(
+                "Nie udało się całkowicie usunąć "
+                "eksperymentu z bazy."
+            )
+
+    return {
+        "experiment_id": experiment_id,
+        "deleted_experiments": 1,
+        "deleted_measurements": (
+            measurement_count
+        ),
+    }
