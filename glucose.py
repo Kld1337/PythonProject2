@@ -1556,6 +1556,7 @@ def create_glucose_sample_figure(
 
 def create_glucose_calibration_figure(
     calibration_result: dict,
+    qc_results: pd.DataFrame,
 ):
     """
     Tworzy liniową krzywą standardową glukozy
