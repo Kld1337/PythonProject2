@@ -1430,10 +1430,32 @@ def create_glucose_analysis(
 def create_glucose_sample_figure(
     sample_summary: pd.DataFrame,
     chart_type: str,
+    specification_lower_g_l: float,
+    specification_upper_g_l: float,
+    y_axis_maximum_g_l: float,
 ):
     """
-    Tworzy wykres końcowego stężenia glukozy.
+    Tworzy wykres końcowego stężenia glukozy
+    z zaznaczonym zakresem specyfikacji.
     """
+
+    if (
+        specification_lower_g_l
+        >= specification_upper_g_l
+    ):
+        raise ValueError(
+            "Dolna granica specyfikacji musi być "
+            "mniejsza od górnej granicy."
+        )
+
+    if (
+        y_axis_maximum_g_l
+        <= specification_upper_g_l
+    ):
+        raise ValueError(
+            "Maksimum osi Y musi być większe "
+            "od górnej granicy specyfikacji."
+        )
 
     chart_data = sample_summary.copy()
 
@@ -1487,12 +1509,45 @@ def create_glucose_sample_figure(
             ),
         )
 
+    figure.add_hrect(
+        y0=specification_lower_g_l,
+        y1=specification_upper_g_l,
+        fillcolor="green",
+        opacity=0.15,
+        line_width=0,
+        annotation_text=(
+            "Zakres specyfikacji: "
+            f"{specification_lower_g_l:.2f}–"
+            f"{specification_upper_g_l:.2f} g/L"
+        ),
+        annotation_position="top left",
+    )
+
+    figure.add_hline(
+        y=specification_lower_g_l,
+        line_dash="dash",
+        line_color="green",
+    )
+
+    figure.add_hline(
+        y=specification_upper_g_l,
+        line_dash="dash",
+        line_color="green",
+    )
+
     figure.update_layout(
         xaxis_tickangle=-45,
+        yaxis={
+            "title": "Stężenie glukozy [g/L]",
+            "range": [
+                0,
+                y_axis_maximum_g_l,
+            ],
+        },
         margin={
             "l": 70,
             "r": 40,
-            "t": 80,
+            "t": 100,
             "b": 120,
         },
     )
@@ -1501,7 +1556,6 @@ def create_glucose_sample_figure(
 
 def create_glucose_calibration_figure(
     calibration_result: dict,
-    qc_results: pd.DataFrame,
 ):
     """
     Tworzy liniową krzywą standardową glukozy
@@ -1846,7 +1900,51 @@ def show_glucose_module(
             key="glucose_cv_limit",
         )
     )
+    st.subheader(
+        "Zakres specyfikacji i ustawienia wykresu"
+    )
 
+    (
+        specification_column_1,
+        specification_column_2,
+        specification_column_3,
+    ) = st.columns(3)
+
+    specification_lower_g_l = (
+        specification_column_1.number_input(
+            "Dolna granica specyfikacji [g/L]",
+            min_value=0.0,
+            max_value=1000.0,
+            value=1.71,
+            step=0.01,
+            format="%.2f",
+            key="glucose_specification_lower",
+        )
+    )
+
+    specification_upper_g_l = (
+        specification_column_2.number_input(
+            "Górna granica specyfikacji [g/L]",
+            min_value=0.0,
+            max_value=1000.0,
+            value=1.89,
+            step=0.01,
+            format="%.2f",
+            key="glucose_specification_upper",
+        )
+    )
+
+    y_axis_maximum_g_l = (
+        specification_column_3.number_input(
+            "Maksimum osi Y [g/L]",
+            min_value=0.1,
+            max_value=1000.0,
+            value=2.0,
+            step=0.1,
+            format="%.2f",
+            key="glucose_y_axis_maximum",
+        )
+    )
     chart_type = st.radio(
         "Rodzaj wykresu próbek",
         options=[
@@ -2080,6 +2178,9 @@ def show_glucose_module(
             create_glucose_sample_figure(
                 sample_summary,
                 chart_type,
+                specification_lower_g_l,
+                specification_upper_g_l,
+                y_axis_maximum_g_l,
             )
         )
 
@@ -2120,4 +2221,3 @@ def show_glucose_module(
         ZeroDivisionError,
     ) as error:
         st.error(str(error))
-        
