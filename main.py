@@ -16,6 +16,7 @@ from database import (
 
 from viability import show_viability_module
 from bca import show_bca_module
+from glucose import show_glucose_module
 from viability_comparison import (
     show_viability_comparison,
 )
@@ -1697,6 +1698,7 @@ try:
         viability_tab,
         hemolysis_tab,
         bca_tab,
+        glucose_tab,
         database_tab,
     ) = st.tabs(
         [
@@ -1708,6 +1710,7 @@ try:
             "Żywotność",
             "Hemoliza",
             "BCA",
+            "Glukoza",
             "Zapis",
         ]
     )
@@ -2665,7 +2668,87 @@ try:
             )
 
             st.info(str(bca_error))
+    with glucose_tab:
+        st.subheader(
+            "Moduł oznaczania stężenia glukozy"
+        )
 
+        try:
+            glucose_detected_blocks = (
+                detect_plate_blocks(raw_data)
+            )
+
+            glucose_supported_blocks = (
+                get_supported_measurement_blocks(
+                    glucose_detected_blocks
+                )
+            )
+
+            glucose_absorbance_blocks = [
+                block
+                for block in glucose_supported_blocks
+                if (
+                    str(block["label"])
+                    .strip()
+                    .upper()
+                    == "ABS"
+                )
+            ]
+
+            if not glucose_absorbance_blocks:
+                raise ValueError(
+                    "Nie znaleziono bloku Abs "
+                    "w wybranym arkuszu."
+                )
+
+            selected_glucose_block = st.selectbox(
+                "Wybierz blok absorbancji dla glukozy",
+                options=glucose_absorbance_blocks,
+                format_func=lambda block: (
+                    f"{block['label']} "
+                    f"(wiersz {block['header_row']})"
+                ),
+                key="glucose_absorbance_block_selector",
+            )
+
+            st.caption(
+                "Sprawdź, czy wybrany blok zawiera "
+                "właściwy odczyt dla oznaczenia glukozy."
+            )
+
+            glucose_measurements = (
+                extract_measurement_plate(
+                    raw_data,
+                    selected_glucose_block[
+                        "header_row"
+                    ],
+                )
+            )
+
+            glucose_plate_map = (
+                extract_sample_plate_map(
+                    raw_data
+                )
+            )
+
+            glucose_combined_data = (
+                combine_measurement_with_sample_map(
+                    glucose_measurements,
+                    glucose_plate_map,
+                )
+            )
+
+            show_glucose_module(
+                glucose_combined_data
+            )
+
+        except ValueError as glucose_error:
+            st.warning(
+                "Nie udało się wykonać "
+                "analizy glukozy."
+            )
+
+            st.info(str(glucose_error))
     with database_tab:
         st.subheader("Zapis eksperymentu w bazie")
 
