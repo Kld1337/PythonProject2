@@ -17,6 +17,7 @@ from database import (
 from viability import show_viability_module
 from bca import show_bca_module
 from glucose import show_glucose_module
+from ribogreen import show_ribogreen_module
 from viability_comparison import (
     show_viability_comparison,
 )
@@ -1718,6 +1719,7 @@ try:
         hemolysis_tab,
         bca_tab,
         glucose_tab,
+        ribogreen_tab,
         database_tab,
     ) = st.tabs(
         [
@@ -1730,6 +1732,7 @@ try:
             "Hemoliza",
             "BCA",
             "Glukoza",
+            "RiboGreen",
             "Zapis",
         ]
     )
@@ -2768,6 +2771,92 @@ try:
             )
 
             st.info(str(glucose_error))
+    with ribogreen_tab:
+        st.subheader(
+            "Moduł oznaczania RNA metodą RiboGreen"
+        )
+
+        try:
+            ribogreen_detected_blocks = (
+                detect_plate_blocks(raw_data)
+            )
+
+            ribogreen_supported_blocks = (
+                get_supported_measurement_blocks(
+                    ribogreen_detected_blocks
+                )
+            )
+
+            ribogreen_fluorescence_blocks = [
+                block
+                for block in ribogreen_supported_blocks
+                if (
+                    str(block["label"])
+                    .strip()
+                    .upper()
+                    == "RFU"
+                )
+            ]
+
+            if not ribogreen_fluorescence_blocks:
+                raise ValueError(
+                    "Nie znaleziono bloku RFU "
+                    "w wybranym arkuszu."
+                )
+
+            selected_ribogreen_block = st.selectbox(
+                "Wybierz blok fluorescencji dla RiboGreen",
+                options=ribogreen_fluorescence_blocks,
+                format_func=lambda block: (
+                    f"{block['label']} "
+                    f"(wiersz {block['header_row']})"
+                ),
+                key=(
+                    "ribogreen_fluorescence_"
+                    "block_selector"
+                ),
+            )
+
+            st.caption(
+                "Do analizy RiboGreen wykorzystywany "
+                "jest blok fluorescencji RFU."
+            )
+
+            ribogreen_measurements = (
+                extract_measurement_plate(
+                    raw_data,
+                    selected_ribogreen_block[
+                        "header_row"
+                    ],
+                )
+            )
+
+            ribogreen_plate_map = (
+                extract_sample_plate_map(
+                    raw_data
+                )
+            )
+
+            ribogreen_combined_data = (
+                combine_measurement_with_sample_map(
+                    ribogreen_measurements,
+                    ribogreen_plate_map,
+                )
+            )
+
+            show_ribogreen_module(
+                ribogreen_combined_data
+            )
+
+        except ValueError as ribogreen_error:
+            st.warning(
+                "Nie udało się wykonać "
+                "analizy RiboGreen."
+            )
+
+            st.info(
+                str(ribogreen_error)
+            )
     with database_tab:
         st.subheader("Zapis eksperymentu w bazie")
 
@@ -2823,6 +2912,7 @@ try:
                     "Żywotność",
                     "BCA",
                     "Stężenie glukozy",
+                    "RiboGreen",
                     "Luminescencja - Fluc mRNA",
                     "Fluorescencja - GFP mRNA",
                     "Inne badanie absorbancji",
@@ -2951,7 +3041,16 @@ try:
                             "measurement_unit"
                         ]
                     )
-
+                    if (
+                        assay_type == "RiboGreen"
+                        and measurement_unit_to_save
+                        != "RFU"
+                    ):
+                        raise ValueError(
+                            "Analiza RiboGreen wymaga "
+                            "wybrania bloku RFU."
+                        )
+                    
                     metadata_to_save = {
                         "experiment_id": (
                             experiment_id.strip()
