@@ -6,6 +6,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from excluded_results import (
+    add_exclusion_information,
+    show_exclusion_editor,
+)
 
 DEFAULT_STANDARD_CONCENTRATIONS = {
     "Std1": 18.18,
@@ -1805,6 +1809,34 @@ def show_glucose_module(
     """
     Wyświetla analizę stężenia glukozy.
     """
+    if not excluded_results.empty:
+        st.subheader(
+            "Wyniki wykluczone z obliczeń"
+        )
+
+        st.dataframe(
+            excluded_results,
+            width="stretch",
+            hide_index=True,
+        )
+
+        excluded_download = (
+            excluded_results.to_csv(
+                index=False
+            ).encode("utf-8")
+        )
+
+        st.download_button(
+            label=(
+                "Pobierz listę wykluczonych "
+                "wyników jako CSV"
+            ),
+            data=excluded_download,
+            file_name=(
+                "glucose_excluded_results.csv"
+            ),
+            mime="text/csv",
+        )
 
     st.subheader(
         "Oznaczanie stężenia glukozy"
@@ -1816,6 +1848,37 @@ def show_glucose_module(
         "0001–0003 oraz ich powtórzenia "
         "techniczne."
     )
+    st.subheader(
+        "Kontrola i wykluczanie wyników"
+    )
+
+    enable_exclusions = st.checkbox(
+        "Włącz ręczne wykluczanie pojedynczych dołków",
+        value=False,
+        key="glucose_enable_exclusions",
+    )
+
+    if enable_exclusions:
+        (
+            analysis_data,
+            excluded_results,
+        ) = show_exclusion_editor(
+            combined_data,
+            key_prefix="glucose",
+        )
+
+    else:
+        analysis_data = combined_data.copy()
+
+        excluded_results = pd.DataFrame(
+            columns=[
+                "well",
+                "sample_id",
+                "raw_value",
+                "exclude",
+                "exclusion_reason",
+            ]
+        )
 
     st.subheader(
         "Stężenia standardów"
@@ -1959,7 +2022,7 @@ def show_glucose_module(
     try:
         analysis_result = (
             create_glucose_analysis(
-                combined_data,
+                analysis_data,
                 standard_concentrations=(
                     standard_concentrations
                 ),
@@ -1993,7 +2056,38 @@ def show_glucose_module(
                 "preparation_results"
             ]
         )
+        reduced_replicate_results = (
+            preparation_results.loc[
+                preparation_results[
+                    "technical_n"
+                ] < 3
+            ]
+        )
 
+        if not reduced_replicate_results.empty:
+            affected_groups = (
+                reduced_replicate_results[
+                    [
+                        "base_sample_id",
+                        "preparation_number",
+                        "technical_n",
+                    ]
+                ]
+                .astype(str)
+                .agg(
+                    " | ".join,
+                    axis=1,
+                )
+                .tolist()
+            )
+
+            st.warning(
+                "Po wykluczeniu mniej niż trzy "
+                "powtórzenia pozostały dla: "
+                + "; ".join(affected_groups)
+                + "."
+            )
+            
         sample_summary = analysis_result[
             "sample_summary"
         ]
