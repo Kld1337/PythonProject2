@@ -1802,6 +1802,151 @@ def create_glucose_conclusions(
         )
 
     return conclusions
+def calculate_glucose_recovery(
+    sample_summary: pd.DataFrame,
+    spike_pairs: pd.DataFrame,
+    recovery_lower_pct: float,
+    recovery_upper_pct: float,
+) -> pd.DataFrame:
+    """
+    Oblicza odzysk glukozy dla ręcznie wskazanych
+    par: próbka bazowa i próbka wzbogacona.
+
+    Recovery [%] =
+    (
+        wynik próbki wzbogaconej
+        - wynik próbki bazowej
+    )
+    / dodane stężenie
+    * 100
+    """
+
+    if recovery_lower_pct >= recovery_upper_pct:
+        raise ValueError(
+            "Dolna granica recovery musi być "
+            "mniejsza od górnej granicy."
+        )
+
+    if spike_pairs.empty:
+        return pd.DataFrame()
+
+    required_pair_columns = {
+        "base_sample_id",
+        "spiked_sample_id",
+        "added_concentration_g_l",
+    }
+
+    missing_pair_columns = (
+        required_pair_columns
+        - set(spike_pairs.columns)
+    )
+
+    if missing_pair_columns:
+        raise ValueError(
+            "W tabeli spików brakuje kolumn: "
+            + ", ".join(
+                sorted(missing_pair_columns)
+            )
+            + "."
+        )
+
+    concentration_lookup = (
+        sample_summary
+        .set_index("base_sample_id")[
+            "mean_concentration_g_l"
+        ]
+        .to_dict()
+    )
+
+    result_rows = []
+
+    for row in spike_pairs.to_dict(
+        orient="records"
+    ):
+        base_sample_id = str(
+            row.get(
+                "base_sample_id",
+                "",
+            )
+        ).strip()
+
+        spiked_sample_id = str(
+            row.get(
+                "spiked_sample_id",
+                "",
+            )
+        ).strip()
+
+        added_concentration = pd.to_numeric(
+            row.get(
+                "added_concentration_g_l"
+            ),
+            errors="coerce",
+        )
+
+        if (
+            not base_sample_id
+            or not spiked_sample_id
+            or pd.isna(added_concentration)
+        ):
+            continue
+
+        if added_concentration <= 0:
+            raise ValueError(
+                "Dodane stężenie glukozy musi być "
+                "większe od zera."
+            )
+
+        if (
+            base_sample_id
+            not in concentration_lookup
+        ):
+            raise ValueError(
+                "Nie znaleziono wyniku próbki "
+                f"bazowej '{base_sample_id}'."
+            )
+
+        if (
+            spiked_sample_id
+            not in concentration_lookup
+        ):
+            raise ValueError(
+                "Nie znaleziono wyniku próbki "
+                f"wzbogaconej '{spiked_sample_id}'."
+            )
+
+        base_concentration = float(
+            concentration_lookup[
+                base_sample_id
+            ]
+        )
+
+        spiked_concentration = float(
+            concentration_lookup[
+                spiked_sample_id
+            ]
+        )
+
+        recovered_concentration = (
+            spiked_concentration
+            - base_concentration
+        )
+
+        recovery_pct = (
+            recovered_concentration
+            / float(added_concentration)
+            * 100
+        )
+
+        recovery_status = (
+            "PASS"
+            if (
+                recovery_lower_pct
+                <= recovery_pct
+                <= recovery_upper_pct
+            )
+            else "FAIL"
+        )
 
 def show_glucose_module(
     combined_data: pd.DataFrame,
@@ -2255,7 +2400,244 @@ def show_glucose_module(
             sample_figure,
             width="stretch",
         )
+        st.divider()
 
+        st.subheader(
+            "Spiki i recovery"
+        )
+
+        enable_spike_recovery = st.checkbox(
+            "Włącz obliczanie recovery",
+            value=False,
+            key="glucose_enable_spike_recovery",
+        )
+
+        recovery_results = pd.DataFrame()
+
+        if enable_spike_recovery:
+            st.write(
+                "Wskaż próbkę niewzbogaconą, "
+                "odpowiadającą próbkę wzbogaconą "
+                "oraz dodane stężenie glukozy."
+            )
+
+            st.caption(
+                "Dodane stężenie należy podać "
+                "w g/L, czyli w tej samej jednostce "
+                "co końcowe wyniki próbek."
+            )
+
+            (
+                recovery_column_1,
+                recovery_column_2,
+            ) = st.columns(2)
+
+            recovery_lower_pct = (
+                recovery_column_1.number_input(
+                    "Dolny limit recovery [%]",
+                    min_value=0.0,
+                    max_value=1000.0,
+                    value=98.0,
+                    step=1.0,
+                    key=(
+                        "glucose_recovery_lower"
+                    ),
+                )
+            )
+
+            recovery_upper_pct = (
+                recovery_column_2.number_input(
+                    "Górny limit recovery [%]",
+                    min_value=0.0,
+                    max_value=1000.0,
+                    value=102.0,
+                    step=1.0,
+                    key=(
+                        "glucose_recovery_upper"
+                    ),
+                )
+            )
+
+            available_sample_ids = (
+                sample_summary[
+                    "base_sample_id"
+                ]
+                .astype(str)
+                .sort_values()
+                .tolist()
+            )
+
+            default_spike_table = pd.DataFrame(
+                [
+                    {
+                        "base_sample_id": (
+                            available_sample_ids[0]
+                            if available_sample_ids
+                            else ""
+                        ),
+                        "spiked_sample_id": (
+                            available_sample_ids[0]
+                            if available_sample_ids
+                            else ""
+                        ),
+                        "added_concentration_g_l": (
+                            0.0
+                        ),
+                    }
+                ]
+            )
+
+            spike_pairs = st.data_editor(
+                default_spike_table,
+                num_rows="dynamic",
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "base_sample_id": (
+                        st.column_config.SelectboxColumn(
+                            "Próbka bazowa",
+                            options=(
+                                available_sample_ids
+                            ),
+                            required=True,
+                        )
+                    ),
+                    "spiked_sample_id": (
+                        st.column_config.SelectboxColumn(
+                            "Próbka wzbogacona",
+                            options=(
+                                available_sample_ids
+                            ),
+                            required=True,
+                        )
+                    ),
+                    "added_concentration_g_l": (
+                        st.column_config.NumberColumn(
+                            "Dodane stężenie [g/L]",
+                            min_value=0.0,
+                            format="%.4f",
+                            required=True,
+                        )
+                    ),
+                },
+                key=(
+                    "glucose_spike_pair_editor"
+                ),
+            )
+
+            valid_spike_pairs = (
+                spike_pairs.loc[
+                    pd.to_numeric(
+                        spike_pairs[
+                            "added_concentration_g_l"
+                        ],
+                        errors="coerce",
+                    )
+                    .fillna(0)
+                    .gt(0)
+                ]
+                .copy()
+            )
+
+            if valid_spike_pairs.empty:
+                st.info(
+                    "Dodaj przynajmniej jedną parę "
+                    "i wpisz dodane stężenie większe "
+                    "od zera."
+                )
+
+            else:
+                recovery_results = (
+                    calculate_glucose_recovery(
+                        sample_summary,
+                        valid_spike_pairs,
+                        recovery_lower_pct,
+                        recovery_upper_pct,
+                    )
+                )
+
+                st.subheader(
+                    "Wyniki recovery"
+                )
+
+                st.dataframe(
+                    recovery_results.style.format(
+                        {
+                            "base_concentration_g_l": (
+                                "{:.4f}"
+                            ),
+                            "spiked_concentration_g_l": (
+                                "{:.4f}"
+                            ),
+                            "added_concentration_g_l": (
+                                "{:.4f}"
+                            ),
+                            "recovered_concentration_g_l": (
+                                "{:.4f}"
+                            ),
+                            "recovery_pct": "{:.2f}",
+                            "recovery_lower_pct": (
+                                "{:.2f}"
+                            ),
+                            "recovery_upper_pct": (
+                                "{:.2f}"
+                            ),
+                        },
+                        na_rep="brak",
+                    ),
+                    width="stretch",
+                    hide_index=True,
+                )
+
+                failed_recovery = (
+                    recovery_results.loc[
+                        recovery_results[
+                            "recovery_status"
+                        ].eq("FAIL")
+                    ]
+                )
+
+                if failed_recovery.empty:
+                    st.success(
+                        "Wszystkie wyniki recovery "
+                        "spełniły przyjęte kryteria."
+                    )
+                else:
+                    failed_pairs = (
+                        failed_recovery[
+                            "spiked_sample_id"
+                        ]
+                        .astype(str)
+                        .tolist()
+                    )
+
+                    st.warning(
+                        "Kryterium recovery nie zostało "
+                        "spełnione dla: "
+                        + ", ".join(
+                            failed_pairs
+                        )
+                        + "."
+                    )
+
+                recovery_csv = (
+                    recovery_results.to_csv(
+                        index=False
+                    ).encode("utf-8")
+                )
+
+                st.download_button(
+                    label=(
+                        "Pobierz wyniki recovery "
+                        "jako CSV"
+                    ),
+                    data=recovery_csv,
+                    file_name=(
+                        "glucose_recovery_results.csv"
+                    ),
+                    mime="text/csv",
+                )
+                
         if not excluded_results.empty:
             st.subheader(
                 "Wyniki wykluczone z obliczeń"
