@@ -1809,34 +1809,6 @@ def show_glucose_module(
     """
     Wyświetla analizę stężenia glukozy.
     """
-    if not excluded_results.empty:
-        st.subheader(
-            "Wyniki wykluczone z obliczeń"
-        )
-
-        st.dataframe(
-            excluded_results,
-            width="stretch",
-            hide_index=True,
-        )
-
-        excluded_download = (
-            excluded_results.to_csv(
-                index=False
-            ).encode("utf-8")
-        )
-
-        st.download_button(
-            label=(
-                "Pobierz listę wykluczonych "
-                "wyników jako CSV"
-            ),
-            data=excluded_download,
-            file_name=(
-                "glucose_excluded_results.csv"
-            ),
-            mime="text/csv",
-        )
 
     st.subheader(
         "Oznaczanie stężenia glukozy"
@@ -2087,7 +2059,7 @@ def show_glucose_module(
                 + "; ".join(affected_groups)
                 + "."
             )
-            
+
         sample_summary = analysis_result[
             "sample_summary"
         ]
@@ -2283,6 +2255,35 @@ def show_glucose_module(
             sample_figure,
             width="stretch",
         )
+
+        if not excluded_results.empty:
+            st.subheader(
+                "Wyniki wykluczone z obliczeń"
+            )
+
+            st.dataframe(
+                excluded_results,
+                width="stretch",
+                hide_index=True,
+            )
+
+            excluded_download = (
+                excluded_results.to_csv(
+                    index=False
+                ).encode("utf-8")
+            )
+
+            st.download_button(
+                label=(
+                    "Pobierz listę wykluczonych "
+                    "wyników jako CSV"
+                ),
+                data=excluded_download,
+                file_name=(
+                    "glucose_excluded_results.csv"
+                ),
+                mime="text/csv",
+            )
 
         st.subheader(
             "Podsumowanie i krótkie wnioski"
