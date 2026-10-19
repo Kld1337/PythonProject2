@@ -1332,6 +1332,14 @@ def show_database_browser() -> None:
             )
         elif (
             selected_assay_type.casefold()
+            == "stężenie glukozy".casefold()
+        ):
+            show_glucose_module(
+                selected_measurements
+            )
+
+        elif (
+            selected_assay_type.casefold()
             == (
                 "Fluorescencja - GFP mRNA"
             ).casefold()
@@ -1385,11 +1393,22 @@ def show_database_browser() -> None:
                 "nie zostało jeszcze dodane."
             )
 
+
+        elif (
+                selected_assay_type.casefold()
+                == "stężenie glukozy".casefold()
+        ):
+            st.info(
+                "Porównanie eksperymentów glukozy "
+                "nie zostało jeszcze dodane."
+            )
+
         else:
             st.info(
                 "Dla wybranego rodzaju testu "
                 "nie ma jeszcze modułu porównania."
-            )
+        )
+
     with statistics_tab:
         st.subheader(
             "Statystyki według identyfikatora próbki"
