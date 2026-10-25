@@ -245,7 +245,7 @@ Zrzuty działania aplikacji znajdują się w katalogu `screenshots`.
 
 ### Import danych
 
-![Import danych](screenshots/import.PNG)
+![Import danych](screenshots/data_import.PNG)
 
 ### Analiza żywotności
 
@@ -253,7 +253,9 @@ Zrzuty działania aplikacji znajdują się w katalogu `screenshots`.
 
 ### Analiza stężenia glukozy
 
-![Analiza stężenia glukozy](screenshots/glucose.PNG)
+![Analiza stężenia glukozy](screenshots/glucose_std.PNG)
+
+![Analiza stężenia glukozy](screenshots/glucose_samples.PNG)
 
 ### Analiza hemolizy
 
