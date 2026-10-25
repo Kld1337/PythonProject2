@@ -1,10 +1,38 @@
+# Virtual environments
 .venv/
+.venv_test/
+venv/
+
+# IDE settings
 .idea/
+.vscode/
+
+# Python temporary files
 __pycache__/
 *.pyc
+*.pyo
+
+# Local spreadsheet data
 *.xlsx
 *.xls
+
+# Allow anonymized demonstration data
+!sample_data/
+!sample_data/*.xlsx
+!sample_data/*.xls
+
+# Local databases
 *.db
 *.db-journal
 *.sqlite
 *.sqlite3
+
+# Backup and temporary files
+*_backup*
+*.bak
+*.tmp
+
+# Logs and system files
+*.log
+.DS_Store
+Thumbs.db
