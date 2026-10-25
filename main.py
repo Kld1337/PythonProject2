@@ -1,10 +1,8 @@
 import numpy as np
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
-from scipy.optimize import curve_fit
 
 from database import (
     delete_experiment,
@@ -1651,9 +1649,6 @@ def show_database_browser() -> None:
                     mean_figure,
                     width="stretch",
                 )
-
-        except ValueError as chart_error:
-            st.warning(str(chart_error))
 
         except ValueError as chart_error:
             st.warning(str(chart_error))
