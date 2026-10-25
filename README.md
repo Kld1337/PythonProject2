@@ -245,27 +245,27 @@ Zrzuty działania aplikacji znajdują się w katalogu `screenshots`.
 
 ### Import danych
 
-![Import danych](screenshots/import.png)
+![Import danych](screenshots/import.PNG)
 
 ### Analiza żywotności
 
-![Analiza żywotności](screenshots/viability.png)
+![Analiza żywotności](screenshots/viability.PNG)
 
 ### Analiza stężenia glukozy
 
-![Analiza stężenia glukozy](screenshots/glucose.png)
+![Analiza stężenia glukozy](screenshots/glucose.PNG)
 
 ### Analiza hemolizy
 
-![Analiza hemolizy](screenshots/hemolysis.png)
+![Analiza hemolizy](screenshots/hemolysis.PNG)
 
 ### Analiza BCA 
 
-![Analiza BCA](screenshots/BCA.png)
+![Analiza BCA](screenshots/BCA.PNG)
 
 ### Baza eksperymentów
 
-![Baza eksperymentów](screenshots/database.png)
+![Baza eksperymentów](screenshots/database.PNG)
 
 
 ## Przykładowe dane
